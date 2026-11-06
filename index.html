@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#b23338">
+  <title>Turni · Responsabile · La Falco</title>
+  <link rel="icon" href="favicon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Responsabile">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="manager.css">
+</head>
+<body class="mode-app">
+  <header class="top">
+    <div class="wrap top-in">
+      <img class="logo" src="logo.png" alt="La Falco soc. coop.">
+      <div class="who">
+        <span class="who-label">Area</span>
+        <strong>Responsabile</strong>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section id="login" class="card" hidden>
+      <h2>Accesso responsabile</h2>
+      <form id="loginForm" class="nameform" autocomplete="off">
+        <label for="pw">Password</label>
+        <div class="row">
+          <input id="pw" type="password" autocomplete="current-password">
+          <button type="submit">Entra</button>
+        </div>
+      </form>
+      <p id="loginMsg" class="msg" role="status"></p>
+    </section>
+
+    <div id="editor" hidden>
+      <div class="mhead">
+        <h2 id="monthLbl"></h2>
+        <div class="mnavs">
+          <button id="mPrev" class="mnav" type="button" aria-label="Mese precedente">‹</button>
+          <button id="mNext" class="mnav" type="button" aria-label="Mese successivo">›</button>
+        </div>
+      </div>
+
+      <div id="tabs" class="tabs" role="tablist"></div>
+
+      <section class="card">
+        <button id="colsBtn" class="linkbtn" type="button" aria-expanded="false">Orari delle colonne</button>
+        <div id="colsBox" class="colsbox" hidden></div>
+      </section>
+
+      <div class="gridwrap"><table id="grid" class="grid"></table></div>
+      <p class="hint">Scrivi i nomi come compaiono nei PDF (es. <b>ROSSI M.</b>). Per cambiare l'orario di una persona: <b>ROSSI M. 18</b> finisce alle 18, <b>18 ROSSI M.</b> inizia alle 18. Le modifiche restano sul tuo telefono finché non tocchi <b>Pubblica</b>.</p>
+      <button id="reload" class="linkbtn" type="button">Ricarica dal server (scarta le modifiche non pubblicate)</button>
+      <button id="logout" class="linkbtn" type="button">Esci</button>
+    </div>
+  </main>
+
+  <div id="pubbar" class="pubbar" hidden>
+    <div class="pubinfo"><span id="pubStatus"></span></div>
+    <button id="pubBtn" class="big" type="button">Pubblica</button>
+  </div>
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script src="config.js"></script>
+  <script src="manager.js"></script>
+</body>
+</html>
