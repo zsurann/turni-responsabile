@@ -1,6 +1,6 @@
 'use strict';
 const API = String(window.TURNI_API || '').replace(/\/$/, '');
-const LS_STATE = 'resp.state.v3', LS_LEGACY_V2 = 'resp.state.v2', LS_LEGACY_V1 = 'resp.state.v1';
+const LS_STATE = 'resp.state.v4', LS_LEGACY_V3 = 'resp.state.v3', LS_LEGACY_V2 = 'resp.state.v2', LS_LEGACY_V1 = 'resp.state.v1';
 const LS_PW = 'resp.pw.v1', LS_PUB = 'resp.pub.v1', LS_EMP = 'resp.emp.v2', LS_LEGACY_EMP = 'resp.emp.v1', LS_UI = 'resp.ui.v1';
 
 const MESI = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
@@ -10,12 +10,6 @@ const DEFAULT_COLS = [
  { start: '06:00', end: '14:00', label: '' },
  { start: '14:00', end: '22:00', label: '' },
  { start: '22:00', end: '06:00', label: '' },
-];
-const EXTRA_PRESETS = [
- { start: '06:00', end: '18:00', label: 'Continuativo Diurno 12h' },
- { start: '18:00', end: '06:00', label: 'Continuativo Notturno 12h' },
- { start: '08:00', end: '20:00', label: 'Continuativo 08-20' },
- { start: '22:00', end: '06:00', label: 'Turno Extra Notte' },
 ];
 
 // Struttura gerarchica di base: CAMPO SUD, CAMPO NORD, PARCHI
@@ -77,7 +71,7 @@ function canonicalSheetTitle(raw) {
  return t;
 }
 
-// Indovina la categoria migliore in base al nome della struttura (es. "Parco San Gennaro" -> "PARCHI")
+// Indovina la categoria migliore in base al nome della postazione (es. "Parco San Gennaro" -> "PARCHI")
 function guessCategoryFromName(rawName) {
  const t = String(rawName || '').trim().toUpperCase();
  if (/\bPARCO\b|\bPARCHI\b|\bVILLA\b|\bGIARDIN/i.test(t)) return 'PARCHI';
@@ -99,7 +93,7 @@ let month = nowInit.getFullYear() + '-' + pad(nowInit.getMonth() + 1);
 let title = 'CAMPO SUD GABBIOTTO';
 let activeCat = 'CAMPO SUD';
 
-let state = migrateState(lsGet(LS_STATE, null) || lsGet(LS_LEGACY_V2, null) || lsGet(LS_LEGACY_V1, null));
+let state = migrateState(lsGet(LS_STATE, null) || lsGet(LS_LEGACY_V3, null) || lsGet(LS_LEGACY_V2, null) || lsGet(LS_LEGACY_V1, null));
 let employees = normalizeEmployees(lsGet(LS_EMP, null) || lsGet(LS_LEGACY_EMP, []));
 let pw = lsGet(LS_PW, '');
 let saveTimer = 0, toastTimer = 0, scrollTimer = 0, firstRender = true;
@@ -110,7 +104,6 @@ const ui = lsGet(LS_UI, {});
 if (/^\d{4}-\d{2}$/.test(ui.month || '')) month = ui.month;
 if (typeof ui.title === 'string' && ui.title) title = canonicalSheetTitle(ui.title);
 
-// Normalizza la lista dipendenti: [{ name: 'MURANTE', cats: ['CAMPO NORD'] }, ...]
 function normalizeEmployees(rawList) {
  if (!Array.isArray(rawList)) return [];
  const map = new Map();
@@ -130,29 +123,45 @@ function normalizeEmployees(rawList) {
  return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'it'));
 }
 
+// Migrazione stato: unisce eventuali vecchie extraCols dentro cols e preserva categorie/postazioni eliminate
 function migrateState(raw) {
  if (!raw || !Array.isArray(raw.sheets)) return null;
  const byKey = new Map();
  const customStructures = Array.isArray(raw.customStructures) ? raw.customStructures : [];
+ const deletedCategories = Array.isArray(raw.deletedCategories) ? raw.deletedCategories : [];
+ const deletedTitles = Array.isArray(raw.deletedTitles) ? raw.deletedTitles : [];
+
  raw.sheets.forEach((s) => {
  const t = canonicalSheetTitle(s.title);
  const m = /^\d{4}-\d{2}$/.test(s.month || '') ? s.month : month;
- if (!t) return;
+ if (!t || deletedTitles.includes(t)) return;
  const key = t + '|' + m;
- const cols = Array.isArray(s.cols) && s.cols.length ? s.cols.map((c) => ({ start: c.start, end: c.end, label: c.label || '' })) : DEFAULT_COLS.map((c) => ({ ...c }));
- const extraCols = Array.isArray(s.extraCols) ? s.extraCols.map((c) => ({ start: c.start, end: c.end, label: c.label || 'Turno Extra' })) : [];
+ const baseCols = Array.isArray(s.cols) && s.cols.length ? s.cols.map((c) => ({ start: c.start, end: c.end, label: c.label || '' })) : DEFAULT_COLS.map((c) => ({ ...c }));
+ const legacyExtraCols = Array.isArray(s.extraCols) ? s.extraCols.map((c) => ({ start: c.start, end: c.end, label: c.label || 'Turno Extra' })) : [];
+ const cols = baseCols.concat(legacyExtraCols);
+
  const cells = {};
- const extraCells = {};
- Object.entries(s.cells || {}).forEach(([date, arr]) => {
- if (date.slice(0, 7) === m && Array.isArray(arr)) cells[date] = arr.slice(0, cols.length);
+ const allDates = new Set([...Object.keys(s.cells || {}), ...Object.keys(s.extraCells || {})]);
+ allDates.forEach((date) => {
+ if (date.slice(0, 7) !== m) return;
+ const stdArr = (s.cells && Array.isArray(s.cells[date])) ? s.cells[date] : [];
+ const extArr = (s.extraCells && Array.isArray(s.extraCells[date])) ? s.extraCells[date] : [];
+ const combined = baseCols.map((_, i) => stdArr[i] || '').concat(legacyExtraCols.map((_, i) => extArr[i] || ''));
+ if (combined.some((x) => x)) cells[date] = combined;
  });
- Object.entries(s.extraCells || {}).forEach(([date, arr]) => {
- if (date.slice(0, 7) === m && Array.isArray(arr)) extraCells[date] = arr.slice(0, extraCols.length);
- });
+
  const cat = s.category === 'PARCO CAFASSO' ? 'PARCHI' : (s.category || '');
- byKey.set(key, { title: t, category: cat, month: m, cols, extraCols, cells, extraCells });
+ if (cat && deletedCategories.includes(cat)) return;
+ byKey.set(key, { title: t, category: cat, month: m, cols, cells });
  });
- return { sheets: [...byKey.values()], customStructures, dirty: !!raw.dirty, noticePending: !!raw.noticePending };
+ return {
+ sheets: [...byKey.values()],
+ customStructures,
+ deletedCategories,
+ deletedTitles,
+ dirty: !!raw.dirty,
+ noticePending: !!raw.noticePending,
+ };
 }
 
 function toast(t) {
@@ -178,20 +187,31 @@ function markDirty() {
  renderCategoryNav();
 }
 
-// Costruisce l'albero completo delle categorie (CAMPO SUD, CAMPO NORD, PARCHI + strutture aggiunte)
+// Costruisce l'albero completo delle categorie escludendo quelle eliminate dal responsabile
 function getCategories() {
- const cats = BASE_CATEGORIES.map((c) => ({ id: c.id, label: c.label, items: c.items.map((x) => ({ ...x })) }));
+ const delCats = new Set((state && state.deletedCategories) || []);
+ const delTitles = new Set((state && state.deletedTitles) || []);
+
+ const cats = BASE_CATEGORIES
+ .filter((c) => !delCats.has(c.id))
+ .map((c) => ({
+ id: c.id,
+ label: c.label,
+ items: c.items.filter((x) => !delTitles.has(x.title)).map((x) => ({ ...x })),
+ }));
+
  const knownTitles = new Set();
  cats.forEach((c) => c.items.forEach((it) => knownTitles.add(it.title)));
 
  const addItemToCat = (structTitle, catName) => {
  const t = canonicalSheetTitle(structTitle);
- if (!t || knownTitles.has(t)) return;
- knownTitles.add(t);
+ if (!t || knownTitles.has(t) || delTitles.has(t)) return;
  let targetCat = catName ? String(catName).trim().toUpperCase() : '';
  if (targetCat === 'PARCO CAFASSO') targetCat = 'PARCHI';
  if (!targetCat) targetCat = guessCategoryFromName(t) || 'PARCHI';
+ if (delCats.has(targetCat)) return;
 
+ knownTitles.add(t);
  let catObj = cats.find((c) => c.id === targetCat);
  if (!catObj) {
  catObj = { id: targetCat, label: targetCat, items: [] };
@@ -204,7 +224,7 @@ function getCategories() {
  (state.customStructures || []).forEach((cs) => addItemToCat(cs.title, cs.category));
  (state.sheets || []).forEach((s) => addItemToCat(s.title, s.category));
  }
- return cats;
+ return cats.filter((c) => c.items.length > 0);
 }
 
 function categoryOfTitle(t) {
@@ -213,13 +233,68 @@ function categoryOfTitle(t) {
  for (const c of cats) {
  if (c.items.some((it) => it.title === ct)) return c.id;
  }
- return guessCategoryFromName(ct) || cats[0].id;
+ return guessCategoryFromName(ct) || (cats[0] ? cats[0].id : 'CAMPO SUD');
 }
 
 function allAvailableTitles() {
  const out = [];
  getCategories().forEach((c) => c.items.forEach((it) => out.push(it.title)));
  return out;
+}
+
+// Elimina un'intera Categoria e tutte le sue Postazioni
+function deleteCategory(catId) {
+ const cats = getCategories();
+ if (cats.length <= 1) return toast('Deve rimanere almeno una categoria attiva');
+ const target = cats.find((c) => c.id === catId);
+ if (!target) return;
+ if (!confirm('Eliminare la categoria "' + catId + '" e tutte le sue postazioni (' + target.items.map((x) => x.label).join(', ') + ')?')) return;
+
+ if (!Array.isArray(state.deletedCategories)) state.deletedCategories = [];
+ if (!state.deletedCategories.includes(catId)) state.deletedCategories.push(catId);
+
+ const titlesToRemove = new Set(target.items.map((x) => x.title));
+ if (!Array.isArray(state.deletedTitles)) state.deletedTitles = [];
+ titlesToRemove.forEach((t) => {
+ if (!state.deletedTitles.includes(t)) state.deletedTitles.push(t);
+ });
+
+ state.customStructures = (state.customStructures || []).filter((cs) => cs.category !== catId && !titlesToRemove.has(canonicalSheetTitle(cs.title)));
+ state.sheets = (state.sheets || []).filter((s) => (s.category || categoryOfTitle(s.title)) !== catId && !titlesToRemove.has(canonicalSheetTitle(s.title)));
+
+ // Rimuove la categoria anche dai filtri dei dipendenti
+ employees.forEach((emp) => {
+ emp.cats = emp.cats.filter((c) => c !== catId);
+ });
+ newEmpSelectedCats.delete(catId);
+
+ const rem = allAvailableTitles();
+ title = rem[0] || '';
+ activeCat = categoryOfTitle(title);
+ markDirty();
+ render();
+ toast('Categoria "' + catId + '" eliminata');
+}
+
+// Elimina una singola Postazione
+function deletePostazione(postTitle) {
+ const all = allAvailableTitles();
+ if (all.length <= 1) return toast('Deve rimanere almeno una postazione attiva');
+ const ct = canonicalSheetTitle(postTitle);
+ if (!confirm('Eliminare definitivamente la postazione "' + ct + '"?')) return;
+
+ if (!Array.isArray(state.deletedTitles)) state.deletedTitles = [];
+ if (!state.deletedTitles.includes(ct)) state.deletedTitles.push(ct);
+
+ state.customStructures = (state.customStructures || []).filter((cs) => canonicalSheetTitle(cs.title) !== ct);
+ state.sheets = (state.sheets || []).filter((s) => canonicalSheetTitle(s.title) !== ct);
+
+ const rem = allAvailableTitles();
+ if (title === ct) title = rem[0] || '';
+ activeCat = categoryOfTitle(title);
+ markDirty();
+ render();
+ toast('Postazione "' + ct + '" eliminata');
 }
 
 function daysIn(m) {
@@ -231,8 +306,7 @@ const isoDay = (m, d) => m + '-' + pad(d);
 function sheetHasData(t, m) {
  const s = sheetFor(t, m, false);
  if (!s) return false;
- const checkMap = (map) => Object.entries(map || {}).some(([date, arr]) => date.slice(0, 7) === m && (arr || []).some((v) => extractPureName(v)));
- return checkMap(s.cells) || checkMap(s.extraCells);
+ return Object.entries(s.cells || {}).some(([date, arr]) => date.slice(0, 7) === m && (arr || []).some((v) => extractPureName(v)));
 }
 
 function sheetFor(t, m, create) {
@@ -241,8 +315,6 @@ function sheetFor(t, m, create) {
  if (s) {
  s.title = nt;
  if (!s.category) s.category = categoryOfTitle(nt);
- if (!Array.isArray(s.extraCols)) s.extraCols = [];
- if (!s.extraCells) s.extraCells = {};
  return s;
  }
  if (!create) return null;
@@ -251,15 +323,14 @@ function sheetFor(t, m, create) {
  .sort((a, b) => b.month.localeCompare(a.month));
  const ref = sameTitle[0];
  const cols = (ref && ref.cols && ref.cols.length ? ref.cols : DEFAULT_COLS).map((c) => ({ start: c.start, end: c.end, label: c.label || '' }));
- const extraCols = (ref && Array.isArray(ref.extraCols) ? ref.extraCols : []).map((c) => ({ start: c.start, end: c.end, label: c.label || 'Turno Extra' }));
  const cat = (ref && ref.category) || categoryOfTitle(nt);
- s = { title: nt, category: cat, month: m, cols, extraCols, cells: {}, extraCells: {} };
+ s = { title: nt, category: cat, month: m, cols, cells: {} };
  state.sheets.push(s);
  return s;
 }
 
-function colTheme(col, isExtraTable) {
- if (isExtraTable || /extra|continuat/i.test(col.label || '')) return 'col-c';
+function colTheme(col) {
+ if (/extra|continuat/i.test(col.label || '')) return 'col-c';
  const [sh, sm] = (col.start || '00:00').split(':').map(Number);
  const [eh, em] = (col.end || '00:00').split(':').map(Number);
  const sMin = sh * 60 + (sm || 0);
@@ -272,16 +343,6 @@ function colTheme(col, isExtraTable) {
  return 'col-p';
 }
 
-function isExtraOrContCol(col) {
- if (/extra|continuat/i.test(col.label || '')) return true;
- const [sh, sm] = (col.start || '00:00').split(':').map(Number);
- const [eh, em] = (col.end || '00:00').split(':').map(Number);
- const sMin = sh * 60 + (sm || 0);
- let eMin = eh * 60 + (em || 0);
- if (eMin <= sMin) eMin += 1440;
- return (eMin - sMin) / 60 >= 10;
-}
-
 function extractPureName(raw) {
  const toks = String(raw || '').trim().toUpperCase().split(/\s+/).filter(Boolean);
  const clean = toks.filter((t) => !/^\d{1,2}(?:[:.]\d{2})?$/.test(t));
@@ -290,15 +351,13 @@ function extractPureName(raw) {
  return joined;
 }
 
-// Sincronizza in automatico i dipendenti trovati nei fogli, associandoli al campo del foglio in cui lavorano
 function syncEmployeesFromSheets() {
  const byName = new Map(employees.map((e) => [e.name, e]));
  let changed = false;
  if (state && Array.isArray(state.sheets)) {
  state.sheets.forEach((s) => {
  const sCat = s.category || categoryOfTitle(s.title);
- [s.cells || {}, s.extraCells || {}].forEach((map) => {
- Object.values(map).forEach((arr) => {
+ Object.values(s.cells || {}).forEach((arr) => {
  (arr || []).forEach((val) => {
  const nm = extractPureName(val);
  if (!nm || nm.length < 2) return;
@@ -315,7 +374,6 @@ function syncEmployeesFromSheets() {
  });
  });
  });
- });
  }
  employees.sort((a, b) => a.name.localeCompare(b.name, 'it'));
  if (changed) lsSet(LS_EMP, employees);
@@ -328,23 +386,23 @@ function toDocs() {
  keep.setMonth(keep.getMonth() - 3);
  const minM = keep.getFullYear() + '-' + pad(keep.getMonth() + 1);
 
- const validSheets = state.sheets.filter((s) => s.month >= minM);
+ const delTitles = new Set((state && state.deletedTitles) || []);
+ const delCats = new Set((state && state.deletedCategories) || []);
+
+ const validSheets = state.sheets.filter((s) => {
+ const ct = canonicalSheetTitle(s.title);
+ const cat = s.category || categoryOfTitle(ct);
+ return s.month >= minM && !delTitles.has(ct) && !delCats.has(cat);
+ });
+
  return validSheets.map((s) => {
  const [y, mo] = s.month.split('-').map(Number);
- const stdCols = s.cols.map((c) => ({ start: c.start, end: c.end, label: c.label || '' }));
- const extCols = (s.extraCols || []).map((c) => ({
- start: c.start,
- end: c.end,
- label: c.label ? (/extra/i.test(c.label) ? c.label : 'Extra ' + c.label) : 'Turno Extra',
- }));
- const allCols = stdCols.concat(extCols);
+ const cols = s.cols.map((c) => ({ start: c.start, end: c.end, label: c.label || '' }));
  const rows = [];
  for (let d = 1; d <= daysIn(s.month); d++) {
  const key = isoDay(s.month, d);
  const cStd = (s.cells && s.cells[key]) || [];
- const cExt = (s.extraCells && s.extraCells[key]) || [];
- const rowCells = stdCols.map((_, i) => String(cStd[i] || '').trim().replace(/\s+/g, ' '))
- .concat(extCols.map((_, i) => String(cExt[i] || '').trim().replace(/\s+/g, ' ')));
+ const rowCells = cols.map((_, i) => String(cStd[i] || '').trim().replace(/\s+/g, ' '));
  rows.push({ date: key, cells: rowCells });
  }
  const pubTitle = exportTitleForClients(s.title);
@@ -354,19 +412,23 @@ function toDocs() {
  uiTitle: s.title,
  category: s.category || categoryOfTitle(s.title),
  month: s.month,
- cols: allCols,
- stdCount: stdCols.length,
+ cols,
  rows,
  };
  }).filter((d) => d.rows.some((r) => r.cells.some((x) => x)));
 }
 
-function fromDocs(docs) {
+function fromDocs(docs, delCats = [], delTitles = []) {
  const map = new Map();
+ const delC = new Set(delCats);
+ const delT = new Set(delTitles);
+
  (docs || []).forEach((d) => {
  const t = canonicalSheetTitle(d.uiTitle || d.title || d.id);
- if (!t || !Array.isArray(d.rows)) return;
+ if (!t || delT.has(t) || !Array.isArray(d.rows)) return;
  const cat = d.category === 'PARCO CAFASSO' ? 'PARCHI' : (d.category || categoryOfTitle(t));
+ if (delC.has(cat)) return;
+
  const rowsByMonth = {};
  d.rows.forEach((r) => {
  if (!r || !/^\d{4}-\d{2}-\d{2}$/.test(r.date || '')) return;
@@ -376,25 +438,13 @@ function fromDocs(docs) {
 
  Object.entries(rowsByMonth).forEach(([m, mRows]) => {
  const key = t + '|' + m;
- const rawCols = Array.isArray(d.cols) ? d.cols : DEFAULT_COLS;
- const stdIdx = [], extIdx = [];
- rawCols.forEach((c, idx) => {
- if (typeof d.stdCount === 'number') {
- if (idx < d.stdCount) stdIdx.push(idx); else extIdx.push(idx);
- } else if (idx >= 3 && isExtraOrContCol(c)) {
- extIdx.push(idx);
- } else {
- stdIdx.push(idx);
- }
- });
- const cols = stdIdx.map((i) => ({ start: rawCols[i].start, end: rawCols[i].end, label: rawCols[i].label || '' }));
- const extraCols = extIdx.map((i) => ({ start: rawCols[i].start, end: rawCols[i].end, label: rawCols[i].label || 'Turno Extra' }));
- const cells = {}, extraCells = {};
+ const rawCols = Array.isArray(d.cols) && d.cols.length ? d.cols : DEFAULT_COLS;
+ const cols = rawCols.map((c) => ({ start: c.start, end: c.end, label: c.label || '' }));
+ const cells = {};
  mRows.forEach((r) => {
- cells[r.date] = stdIdx.map((i) => (r.cells && r.cells[i]) || '');
- if (extIdx.length) extraCells[r.date] = extIdx.map((i) => (r.cells && r.cells[i]) || '');
+ cells[r.date] = cols.map((_, i) => (r.cells && r.cells[i]) || '');
  });
- map.set(key, { title: t, category: cat, month: m, cols: cols.length ? cols : DEFAULT_COLS.map((c) => ({ ...c })), extraCols, cells, extraCells });
+ map.set(key, { title: t, category: cat, month: m, cols, cells });
  });
  });
  return [...map.values()];
@@ -410,9 +460,13 @@ async function loadRemote() {
  if (Array.isArray(d.employees) && d.employees.length) {
  employees = normalizeEmployees([...employees, ...d.employees]);
  }
+ const delCats = Array.isArray(d.deletedCategories) ? d.deletedCategories : (state && state.deletedCategories) || [];
+ const delTitles = Array.isArray(d.deletedTitles) ? d.deletedTitles : (state && state.deletedTitles) || [];
  state = {
- sheets: fromDocs(d.docs || []),
+ sheets: fromDocs(d.docs || [], delCats, delTitles),
  customStructures: Array.isArray(d.customStructures) ? d.customStructures : (state && state.customStructures) || [],
+ deletedCategories: delCats,
+ deletedTitles: delTitles,
  dirty: false,
  };
  syncEmployeesFromSheets();
@@ -448,7 +502,13 @@ async function publish() {
  const r = await api('/api/schedule', {
  method: 'PUT',
  headers: { 'content-type': 'application/json' },
- body: JSON.stringify({ docs: toDocs(), employees, customStructures: state.customStructures || [] }),
+ body: JSON.stringify({
+ docs: toDocs(),
+ employees,
+ customStructures: state.customStructures || [],
+ deletedCategories: state.deletedCategories || [],
+ deletedTitles: state.deletedTitles || [],
+ }),
  });
  if (r.status === 401) { logout(true); return; }
  if (!r.ok) throw new Error('server ' + r.status);
@@ -491,15 +551,15 @@ function renderMonthStats() {
  badge.textContent = 'Mese in corso · ' + MESI[mo - 1] + ' ' + y;
  }
 
- const monthSheets = state.sheets.filter((s) => s.month === month);
+ const activeTitles = new Set(allAvailableTitles());
+ const monthSheets = state.sheets.filter((s) => s.month === month && activeTitles.has(canonicalSheetTitle(s.title)));
  let totalAssigned = 0;
  let activeSheets = 0;
  const uniqueOps = new Set();
 
  monthSheets.forEach((s) => {
  let sheetHasShifts = false;
- [s.cells || {}, s.extraCells || {}].forEach((cellMap) => {
- Object.entries(cellMap).forEach(([date, arr]) => {
+ Object.entries(s.cells || {}).forEach(([date, arr]) => {
  if (date.slice(0, 7) !== month) return;
  (arr || []).forEach((val) => {
  const nm = extractPureName(val);
@@ -510,11 +570,10 @@ function renderMonthStats() {
  }
  });
  });
- });
  if (sheetHasShifts) activeSheets++;
  });
 
- const totalPossible = allAvailableTitles().length;
+ const totalPossible = activeTitles.size;
  const box = $('#mStats');
  const mk = (v, l) => {
  const d = el('div', 'mstat');
@@ -522,25 +581,28 @@ function renderMonthStats() {
  return d;
  };
  box.replaceChildren(
- mk(activeSheets + ' / ' + totalPossible, 'Strutture compilate in ' + MES3[mo - 1]),
+ mk(activeSheets + ' / ' + totalPossible, 'Postazioni compilate in ' + MES3[mo - 1]),
  mk(totalAssigned, 'Turni assegnati in ' + MES3[mo - 1]),
  mk(uniqueOps.size, 'Operatori in ' + MES3[mo - 1])
  );
 }
 
-/* ---------- Navigazione a 2 Livelli: Categorie (CAMPO SUD, CAMPO NORD, PARCHI) -> Strutture ---------- */
+/* ---------- Navigazione a 2 Livelli: Categorie (con elimina) -> Postazioni (con elimina) ---------- */
 function renderCategoryNav() {
  const cats = getCategories();
+ if (!cats.length) return;
  activeCat = categoryOfTitle(title);
  const curCatObj = cats.find((c) => c.id === activeCat) || cats[0];
 
- // Livello 1: Macro-categorie (CAMPO SUD, CAMPO NORD, PARCHI, ecc.)
+ // Livello 1: Macro-categorie (CAMPO SUD, CAMPO NORD, PARCHI, ecc.) + pulsante ✕ per eliminarle
  const catBox = $('#catTabs');
  catBox.replaceChildren();
  cats.forEach((c) => {
  const isOn = c.id === curCatObj.id;
  const hasAnyData = c.items.some((it) => sheetHasData(it.title, month));
- const b = el('button', 'tab' + (isOn ? ' on' : ''));
+ const wrap = el('div', 'tab-wrap' + (isOn ? ' on' : ''));
+
+ const b = el('button', 'tab');
  b.type = 'button';
  b.setAttribute('role', 'tab');
  b.setAttribute('aria-selected', String(isOn));
@@ -557,19 +619,32 @@ function renderCategoryNav() {
  }
  render();
  });
- catBox.append(b);
+
+ const delBtn = el('button', 'tab-del', '✕');
+ delBtn.type = 'button';
+ delBtn.title = 'Elimina categoria ' + c.label;
+ delBtn.setAttribute('aria-label', 'Elimina categoria ' + c.label);
+ delBtn.addEventListener('click', (e) => {
+ e.stopPropagation();
+ deleteCategory(c.id);
  });
 
- // Livello 2: Sotto-fogli / Strutture della categoria attiva
+ wrap.append(b, delBtn);
+ catBox.append(wrap);
+ });
+
+ // Livello 2: Postazioni della categoria attiva + pulsante ✕ per eliminarle
  const subBlock = $('#subNavBlock');
  const subBox = $('#subTabs');
  subBox.replaceChildren();
 
- $('#subNavLabel').textContent = '2. Strutture / Postazioni in ' + curCatObj.label + ':';
+ $('#subNavLabel').textContent = '2. Postazioni in ' + curCatObj.label + ':';
  curCatObj.items.forEach((it) => {
  const isOn = it.title === title;
  const hasData = sheetHasData(it.title, month);
- const b = el('button', 'tab' + (isOn ? ' on' : ''));
+ const wrap = el('div', 'tab-wrap' + (isOn ? ' on' : ''));
+
+ const b = el('button', 'tab');
  b.type = 'button';
  b.setAttribute('role', 'tab');
  b.setAttribute('aria-selected', String(isOn));
@@ -583,15 +658,26 @@ function renderCategoryNav() {
  title = it.title;
  render();
  });
- subBox.append(b);
+
+ const delBtn = el('button', 'tab-del', '✕');
+ delBtn.type = 'button';
+ delBtn.title = 'Elimina postazione ' + it.label;
+ delBtn.setAttribute('aria-label', 'Elimina postazione ' + it.label);
+ delBtn.addEventListener('click', (e) => {
+ e.stopPropagation();
+ deletePostazione(it.title);
+ });
+
+ wrap.append(b, delBtn);
+ subBox.append(wrap);
  });
  subBlock.hidden = false;
 }
 
-/* ---------- Modal: Aggiungi Nuova Struttura con scelta Categoria e Auto-Suggerimento ---------- */
-function openAddStructureModal(triggerBtn) {
+/* ---------- Modal: Aggiungi Nuova Postazione con scelta Categoria e Auto-Suggerimento ---------- */
+function openAddPostazioneModal(triggerBtn) {
  activePicker = { triggerBtn };
- $('#pkTitle').textContent = 'Aggiungi nuova struttura';
+ $('#pkTitle').textContent = 'Aggiungi nuova postazione';
  $('#pkSub').textContent = 'Inserisci il nome e scegli la categoria (es. Parchi, Campo Sud, Campo Nord)';
 
  const body = $('#pkBody');
@@ -599,7 +685,7 @@ function openAddStructureModal(triggerBtn) {
 
  const form = el('form', 'struct-form');
  const nameField = el('div', 'struct-field');
- nameField.append(el('label', '', 'Nome della struttura / postazione'));
+ nameField.append(el('label', '', 'Nome della postazione'));
  const nameInp = el('input');
  nameInp.type = 'text';
  nameInp.placeholder = 'Es. PARCO SAN GENNARO';
@@ -614,7 +700,7 @@ function openAddStructureModal(triggerBtn) {
  catField.append(el('label', '', 'Categoria di appartenenza'));
  const catGrid = el('div', 'struct-cats');
 
- const existingCats = getCategories().map((c) => c.id);
+ const existingCats = [...new Set([...BASE_CATEGORIES.map((c) => c.id), ...getCategories().map((c) => c.id)])];
  let chosenCat = activeCat || 'PARCHI';
  let manualCatOverride = false;
 
@@ -671,31 +757,36 @@ function openAddStructureModal(triggerBtn) {
  renderCatButtons();
  catField.append(catGrid);
 
- const submitBtn = el('button', 'big', 'Aggiungi struttura');
+ const submitBtn = el('button', 'big', 'Aggiungi postazione');
  submitBtn.type = 'submit';
 
  form.append(nameField, suggestBadge, catField, customCatField, submitBtn);
  form.addEventListener('submit', (e) => {
  e.preventDefault();
- const structName = canonicalSheetTitle(nameInp.value);
- if (!structName) return toast('Inserisci il nome della struttura');
+ const postName = canonicalSheetTitle(nameInp.value);
+ if (!postName) return toast('Inserisci il nome della postazione');
  const finalCat = chosenCat === '__NEW__'
  ? String(customCatInp.value || '').trim().toUpperCase().replace(/\s+/g, ' ')
  : chosenCat;
  if (!finalCat) return toast('Scegli o scrivi una categoria');
 
+ // Se la postazione o la categoria erano state eliminate in precedenza, le riattiva
+ state.deletedCategories = (state.deletedCategories || []).filter((c) => c !== finalCat);
+ state.deletedTitles = (state.deletedTitles || []).filter((t) => t !== postName);
+
  if (!Array.isArray(state.customStructures)) state.customStructures = [];
- if (!state.customStructures.some((x) => canonicalSheetTitle(x.title) === structName)) {
- state.customStructures.push({ title: structName, category: finalCat });
- }
- const sh = sheetFor(structName, month, true);
+ const existingCustom = state.customStructures.find((x) => canonicalSheetTitle(x.title) === postName);
+ if (existingCustom) existingCustom.category = finalCat;
+ else state.customStructures.push({ title: postName, category: finalCat });
+
+ const sh = sheetFor(postName, month, true);
  sh.category = finalCat;
- title = structName;
+ title = postName;
  activeCat = finalCat;
  markDirty();
  closeCellPicker();
  render();
- toast('Struttura "' + structName + '" aggiunta in ' + finalCat);
+ toast('Postazione "' + postName + '" aggiunta in ' + finalCat);
  });
 
  body.append(form);
@@ -704,13 +795,12 @@ function openAddStructureModal(triggerBtn) {
  setTimeout(() => nameInp.focus(), 50);
 }
 
-$('#addStructBtn').addEventListener('click', (e) => openAddStructureModal(e.currentTarget));
+$('#addPostBtn').addEventListener('click', (e) => openAddPostazioneModal(e.currentTarget));
 
 /* ---------- Gestione Lista Dipendenti con Campi / Categorie assegnate ---------- */
 function renderEmployees() {
  const cats = getCategories().map((c) => c.id);
 
- // Selettori categoria per il nuovo dipendente da aggiungere
  const newCatsBox = $('#empNewCats');
  newCatsBox.replaceChildren();
  cats.forEach((cid) => {
@@ -804,19 +894,15 @@ $('#empBtn').addEventListener('click', () => {
  $('#empBtn').setAttribute('aria-expanded', String(!b.hidden));
 });
 
-/* ---------- Selettore Rapido Dipendente (filtrato per la Categoria del foglio attivo) ---------- */
+/* ---------- Selettore Rapido Dipendente (filtrato per la Categoria della Postazione attiva) ---------- */
 function operatorsWorkingOnDay(isoDate) {
  const busy = new Map();
- state.sheets.filter((s) => s.month === month).forEach((s) => {
+ const activeTitles = new Set(allAvailableTitles());
+ state.sheets.filter((s) => s.month === month && activeTitles.has(canonicalSheetTitle(s.title))).forEach((s) => {
  (s.cols || []).forEach((col, i) => {
  const v = (s.cells && s.cells[isoDate] && s.cells[isoDate][i]) || '';
  const nm = extractPureName(v);
  if (nm) busy.set(nm, s.title + ' (' + col.start + '–' + col.end + ')');
- });
- (s.extraCols || []).forEach((col, i) => {
- const v = (s.extraCells && s.extraCells[isoDate] && s.extraCells[isoDate][i]) || '';
- const nm = extractPureName(v);
- if (nm) busy.set(nm, s.title + ' Extra (' + col.start + '–' + col.end + ')');
  });
  });
  return busy;
@@ -844,9 +930,9 @@ function formatCellValue(name, startHour, endHour) {
  return parts.join(' ');
 }
 
-function openCellPicker(sheet, key, colIdx, isExtra, triggerBtn, showAllCats = false) {
- const cols = isExtra ? sheet.extraCols : sheet.cols;
- const cellMap = isExtra ? sheet.extraCells : sheet.cells;
+function openCellPicker(sheet, key, colIdx, triggerBtn, showAllCats = false) {
+ const cols = sheet.cols;
+ const cellMap = sheet.cells;
  const col = cols[colIdx];
  const curRaw = (cellMap[key] && cellMap[key][colIdx]) || '';
  const parsed = parseCellValue(curRaw);
@@ -854,7 +940,7 @@ function openCellPicker(sheet, key, colIdx, isExtra, triggerBtn, showAllCats = f
  const dow = new Date(y, mo - 1, d).getDay();
  const sheetCat = sheet.category || categoryOfTitle(sheet.title);
 
- activePicker = { sheet, key, colIdx, isExtra, triggerBtn, parsed };
+ activePicker = { sheet, key, colIdx, triggerBtn, parsed };
  $('#pkTitle').textContent = GG[dow] + ' ' + d + ' ' + MESI[mo - 1] + ' · ' + col.start + '–' + col.end;
  $('#pkSub').textContent = sheet.title + ' (' + sheetCat + ')' + (col.label ? ' · ' + col.label : '');
 
@@ -867,7 +953,7 @@ function openCellPicker(sheet, key, colIdx, isExtra, triggerBtn, showAllCats = f
  arr[colIdx] = String(newVal || '').trim().toUpperCase();
  const pure = extractPureName(arr[colIdx]);
  if (pure && pure.length >= 2) {
- let emp = employees.find((x) => x.name === pure);
+ const emp = employees.find((x) => x.name === pure);
  if (!emp) {
  employees.push({ name: pure, cats: [sheetCat] });
  employees.sort((a, b) => a.name.localeCompare(b.name, 'it'));
@@ -905,7 +991,7 @@ function openCellPicker(sheet, key, colIdx, isExtra, triggerBtn, showAllCats = f
  const hEnd = mkHr('Fine / Prolungamento (opz.)', 'Es. 18', parsed.endHour);
  hrsBox.append(hStart.w, hEnd.w);
 
- // Filtra i dipendenti: mostra solo quelli assegnati alla categoria del foglio attivo (es. PARCHI o CAMPO NORD)
+ // Filtra i dipendenti: mostra solo quelli assegnati alla categoria della postazione attiva
  const assignedEmps = employees.filter((e) => e.cats.includes(sheetCat));
  const otherEmps = employees.filter((e) => !e.cats.includes(sheetCat));
  const visibleEmps = showAllCats ? employees : assignedEmps;
@@ -928,7 +1014,6 @@ function openCellPicker(sheet, key, colIdx, isExtra, triggerBtn, showAllCats = f
  grid.append(btn);
  });
 
- // Pulsante "NO" (nessun servizio)
  const noBtn = el('button', 'pk-emp' + (curRaw === 'NO' ? ' active' : ''));
  noBtn.type = 'button';
  noBtn.append(el('b', '', 'NO'), el('span', '', 'Turno scoperto / non attivo'));
@@ -940,17 +1025,16 @@ function openCellPicker(sheet, key, colIdx, isExtra, triggerBtn, showAllCats = f
  body.append(el('p', 'none', 'Nessun dipendente assegnato a "' + sheetCat + '". Puoi abilitarli nella sezione "Lista dipendenti e campi" oppure mostrare quelli di altri settori qui sotto.'));
  }
 
- // Pulsante opzionale per mostrare anche dipendenti di altri campi (in caso di prestito tra settori)
  if (otherEmps.length > 0) {
  const toggleOther = el('button', 'linkbtn', showAllCats
  ? '▲ Mostra solo dipendenti di ' + sheetCat
  : '▼ Mostra anche dipendenti di altri campi (' + otherEmps.length + ' nascosti)');
  toggleOther.type = 'button';
- toggleOther.addEventListener('click', () => openCellPicker(sheet, key, colIdx, isExtra, triggerBtn, !showAllCats));
+ toggleOther.addEventListener('click', () => openCellPicker(sheet, key, colIdx, triggerBtn, !showAllCats));
  body.append(toggleOther);
  }
 
- body.append(el('p', 'q', 'Orario ridotto o prolungato (facoltativo)'));
+ body.append(el('p', 'q', 'Orario continuativo, ridotto o prolungato (facoltativo)'));
  body.append(hrsBox);
  if (parsed.name && parsed.name !== 'NO') {
  const applyHrs = el('button', 'ghost', 'Aggiorna orario per ' + parsed.name);
@@ -1009,30 +1093,13 @@ function renderBar() {
  $('#pubBtn').disabled = !(state.dirty || pending);
 }
 
-function renderColsEditor(s, isExtra) {
- const box = $(isExtra ? '#extraColsBox' : '#colsBox');
- const cols = isExtra ? s.extraCols : s.cols;
- const cellMap = isExtra ? s.extraCells : s.cells;
+function renderColsEditor(s) {
+ const box = $('#colsBox');
+ const cols = s.cols;
+ const cellMap = s.cells;
  box.replaceChildren();
 
- if (isExtra) {
- const pTitle = el('p', 'q', 'Aggiungi rapido orario continuativo / extra:');
- const pBar = el('div', 'preset-bar');
- EXTRA_PRESETS.forEach((pr) => {
- const b = el('button', 'preset-btn', '+ ' + pr.start + '–' + pr.end + ' (' + pr.label + ')');
- b.type = 'button';
- b.addEventListener('click', () => {
- cols.push({ ...pr });
- markDirty();
- renderColsEditor(s, true);
- renderAllGrids(s);
- });
- pBar.append(b);
- });
- box.append(pTitle, pBar);
- } else {
  $('#colsCountLbl').textContent = cols.length + (cols.length === 1 ? ' colonna oraria' : ' colonne orarie');
- }
 
  cols.forEach((c, i) => {
  const row = el('div', 'colrow');
@@ -1055,61 +1122,57 @@ function renderColsEditor(s, isExtra) {
  x.type = 'button';
  x.setAttribute('aria-label', 'Rimuovi colonna');
  x.addEventListener('click', () => {
- if (!isExtra && cols.length < 1) return toast('Serve almeno una colonna');
+ if (cols.length < 1) return toast('Serve almeno una colonna');
  if (!confirm('Rimuovere questa colonna (' + c.start + '–' + c.end + ') e i nomi che contiene in ' + MESI[+month.slice(5) - 1] + '?')) return;
  cols.splice(i, 1);
  Object.keys(cellMap).forEach((k) => cellMap[k].splice(i, 1));
  markDirty();
- renderColsEditor(s, isExtra);
+ renderColsEditor(s);
  renderAllGrids(s);
  });
- const nm = f(isExtra ? 'Etichetta (es. Continuativo 12h o Turno Extra)' : 'Nome colonna (facoltativo)', 'text', 'label');
+ const nm = f('Nome colonna (facoltativo, es. Turno Extra)', 'text', 'label');
  nm.className = 'colname';
  row.append(x, nm);
  box.append(row);
  });
 
  const acts = el('div', 'colactions');
- const add = el('button', 'linkbtn', isExtra ? '+ Aggiungi colonna continuativa/extra personalizzata' : '+ Aggiungi colonna ordinaria');
+ const add = el('button', 'linkbtn', '+ Aggiungi colonna oraria');
  add.type = 'button';
  add.addEventListener('click', () => {
- cols.push(isExtra ? { start: '06:00', end: '18:00', label: 'Continuativo' } : { start: '06:00', end: '14:00', label: '' });
+ cols.push({ start: '06:00', end: '14:00', label: '' });
  markDirty();
- renderColsEditor(s, isExtra);
+ renderColsEditor(s);
  renderAllGrids(s);
  });
- acts.append(add);
 
- if (!isExtra) {
- const isCustom = (state.customStructures || []).some((cs) => canonicalSheetTitle(cs.title) === s.title);
- const del = el('button', 'linkbtn', isCustom
- ? 'Elimina struttura ' + s.title + ' (' + MESI[+month.slice(5) - 1] + ')'
- : 'Svuota turni di ' + s.title + ' (' + MESI[+month.slice(5) - 1] + ')');
- del.type = 'button';
- del.addEventListener('click', () => {
+ const clearMonth = el('button', 'linkbtn', 'Svuota turni ' + MESI[+month.slice(5) - 1]);
+ clearMonth.type = 'button';
+ clearMonth.addEventListener('click', () => {
  if (!confirm('Svuotare tutti i turni di ' + s.title + ' nel mese di ' + MESI[+month.slice(5) - 1] + '?')) return;
- state.sheets = state.sheets.filter((x) => x !== s);
- if (isCustom && !state.sheets.some((x) => canonicalSheetTitle(x.title) === s.title)) {
- state.customStructures = (state.customStructures || []).filter((cs) => canonicalSheetTitle(cs.title) !== s.title);
- }
+ s.cells = {};
  markDirty();
  render();
  });
- acts.append(del);
- }
+
+ const delPost = el('button', 'linkbtn', 'Elimina postazione ' + s.title);
+ delPost.type = 'button';
+ delPost.addEventListener('click', () => deletePostazione(s.title));
+
+ acts.append(add, clearMonth, delPost);
  box.append(acts);
 }
 
-function buildTableDOM(tableEl, s, isExtra) {
- const cols = isExtra ? s.extraCols : s.cols;
- const cellMap = isExtra ? s.extraCells : s.cells;
+function buildTableDOM(tableEl, s) {
+ const cols = s.cols;
+ const cellMap = s.cells;
  tableEl.replaceChildren();
  if (!cols.length) return;
 
  const hr = el('tr');
  hr.append(el('th', 'day', 'Giorno'));
  cols.forEach((c) => {
- const theme = colTheme(c, isExtra);
+ const theme = colTheme(c);
  const th = el('th', theme);
  th.append(el('span', 'th-time', c.start + ' – ' + c.end));
  const defaultLbl = theme === 'col-m' ? 'Mattina' : (theme === 'col-p' ? 'Pomeriggio' : (theme === 'col-n' ? 'Notte' : 'Continuativo / Extra'));
@@ -1139,7 +1202,7 @@ function buildTableDOM(tableEl, s, isExtra) {
  tr.append(td);
 
  cols.forEach((col, i) => {
- const theme = colTheme(col, isExtra);
+ const theme = colTheme(col);
  const c = el('td');
  const val = ((cellMap[key] || [])[i] || '').trim();
  const btn = el('button', 'cell-btn ' + theme + (val ? ' filled' : ' empty') + (val === 'NO' ? ' is-no' : ''));
@@ -1149,7 +1212,7 @@ function buildTableDOM(tableEl, s, isExtra) {
  el('span', 'c-txt', val || '+ Assegna'),
  el('span', 'c-arr', '▾')
  );
- btn.addEventListener('click', () => openCellPicker(s, key, i, isExtra, btn, false));
+ btn.addEventListener('click', () => openCellPicker(s, key, i, btn, false));
  c.append(btn);
  tr.append(c);
  });
@@ -1161,19 +1224,20 @@ function buildTableDOM(tableEl, s, isExtra) {
 function renderAllGrids(s) {
  const [y, mo] = month.split('-').map(Number);
  const sCat = s.category || categoryOfTitle(s.title);
- $('#mainTableTitle').textContent = s.title + ' · Turni Ordinari';
+ $('#mainTableTitle').textContent = s.title;
  $('#mainTableSub').textContent = sCat + ' · ' + MESI[mo - 1] + ' ' + y;
- buildTableDOM($('#grid'), s, false);
-
- const hasExtra = s.extraCols && s.extraCols.length > 0;
- $('#extraGridWrap').hidden = !hasExtra;
- $('#extraEmpty').hidden = hasExtra;
- if (hasExtra) buildTableDOM($('#extraGrid'), s, true);
+ buildTableDOM($('#grid'), s);
 }
 
 function render() {
  const validTitles = allAvailableTitles();
- if (!validTitles.includes(title)) title = validTitles[0];
+ if (!validTitles.length) {
+ // Se tutte le categorie/postazioni fossero state cancellate, ripristina la prima di default
+ state.deletedCategories = [];
+ state.deletedTitles = [];
+ }
+ const updatedTitles = allAvailableTitles();
+ if (!updatedTitles.includes(title)) title = updatedTitles[0];
  const [y, mo] = month.split('-').map(Number);
  $('#monthLbl').textContent = MESI[mo - 1] + ' ' + y;
  const s = sheetFor(title, month, true);
@@ -1181,8 +1245,7 @@ function render() {
  renderMonthStats();
  renderCategoryNav();
  renderEmployees();
- renderColsEditor(s, false);
- renderColsEditor(s, true);
+ renderColsEditor(s);
  renderAllGrids(s);
  renderBar();
  saveUi();
@@ -1220,7 +1283,7 @@ async function start() {
  show(true);
  if (!state) {
  try { await loadRemote(); }
- catch { state = { sheets: [], customStructures: [], dirty: false }; toast('Server non raggiungibile'); }
+ catch { state = { sheets: [], customStructures: [], deletedCategories: [], deletedTitles: [], dirty: false }; toast('Server non raggiungibile'); }
  } else {
  syncEmployeesFromSheets();
  }
@@ -1269,11 +1332,6 @@ $('#colsBtn').addEventListener('click', () => {
  const b = $('#colsBox');
  b.hidden = !b.hidden;
  $('#colsBtn').setAttribute('aria-expanded', String(!b.hidden));
-});
-$('#extraColsBtn').addEventListener('click', () => {
- const b = $('#extraColsBox');
- b.hidden = !b.hidden;
- $('#extraColsBtn').setAttribute('aria-expanded', String(!b.hidden));
 });
 
 $('#pubBtn').addEventListener('click', publish);

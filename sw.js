@@ -1,5 +1,5 @@
 /* Service worker: prima la rete, offline usa la copia salvata. */
-const CACHE = 'resp-v4';
+const CACHE = 'resp-v5';
 const ASSETS = [
  './', 'index.html', 'style.css', 'manager.css', 'manager.js', 'config.js',
  'manifest.webmanifest', 'logo.png', 'favicon.png', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png',

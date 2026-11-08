@@ -1,4 +1,4 @@
-/* Stili potenziati per l'app del responsabile: categorie con Parchi, dipendenti per settore e tabelle ingrandite */
+/* Stili per l'app del responsabile: categorie e postazioni eliminabili, dipendenti per settore e tabella ingrandita */
 :root {
  --m-bg: #fff9db; --m-bd: #f5d97e; --m-tx: #664d03;
  --p-bg: #fdecec; --p-bd: #f5bcbc; --p-tx: #842029;
@@ -28,7 +28,7 @@ main { padding-bottom: 120px; }
 .mstat b { font-size: 20px; font-weight: 800; color: var(--ink); line-height: 1.1; }
 .mstat span { font-size: 11px; font-weight: 700; color: var(--mut); text-transform: uppercase; letter-spacing: .05em; }
 
-/* Navigazione Categorie e Sotto-fogli a 2 livelli */
+/* Navigazione Categorie e Postazioni a 2 livelli */
 .nav-card { display: grid; gap: 14px; padding: 16px 18px; }
 .nav-block { display: grid; gap: 10px; }
 .nav-head-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
@@ -36,31 +36,51 @@ main { padding-bottom: 120px; }
 .nav-label { font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--mut); }
 
 .tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; flex-wrap: wrap; }
-.tab {
- flex: none; display: inline-flex; align-items: center; gap: 8px;
+.tab-wrap {
+ flex: none; display: inline-flex; align-items: center;
  border: 1.5px solid var(--line); background: #fff; border-radius: 14px;
- padding: 11px 18px; font: inherit; font-size: 15px; font-weight: 800;
- color: var(--ink); cursor: pointer; transition: all .18s var(--ease);
+ overflow: hidden; transition: all .18s var(--ease);
 }
-.tab:hover { border-color: var(--red); transform: translateY(-1px); }
-.tab.on { background: var(--ink); color: #fff; border-color: var(--ink); box-shadow: 0 4px 12px rgba(0,0,0,.14); }
-.tab .cat-cnt { font-size: 11px; font-weight: 800; padding: 2px 7px; border-radius: 999px; background: var(--bg); color: var(--mut); }
-.tab.on .cat-cnt { background: rgba(255,255,255,0.2); color: #fff; }
+.tab-wrap:hover { border-color: var(--red); transform: translateY(-1px); }
+.tab-wrap.on { background: var(--ink); border-color: var(--ink); box-shadow: 0 4px 12px rgba(0,0,0,.14); }
 
-/* Sotto-fogli (secondo livello) */
-.sub-tabs .tab {
- border-radius: 999px; padding: 9px 16px; font-size: 14px;
- background: var(--bg); border-color: #d6d2ce; color: var(--mut);
+.tab {
+ border: 0; background: transparent; color: var(--ink);
+ padding: 10px 12px 10px 16px; font: inherit; font-size: 15px; font-weight: 800;
+ display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
 }
-.sub-tabs .tab:hover { color: var(--ink); border-color: var(--red); background: #fff; }
-.sub-tabs .tab.on {
- background: var(--red); color: #fff; border-color: var(--red);
+.tab-wrap.on .tab { color: #fff; }
+.tab .cat-cnt { font-size: 11px; font-weight: 800; padding: 2px 7px; border-radius: 999px; background: var(--bg); color: var(--mut); }
+.tab-wrap.on .tab .cat-cnt { background: rgba(255,255,255,0.2); color: #fff; }
+
+.tab-del {
+ border: 0; border-left: 1px solid var(--line); background: transparent;
+ color: var(--mut); width: 32px; height: 100%; min-height: 38px;
+ font-size: 13px; font-weight: 800; cursor: pointer;
+ display: inline-flex; align-items: center; justify-content: center;
+ transition: background .15s, color .15s;
+}
+.tab-del:hover { background: var(--red); color: #fff; }
+.tab-wrap.on .tab-del { border-left-color: rgba(255,255,255,0.18); color: rgba(255,255,255,0.75); }
+.tab-wrap.on .tab-del:hover { background: var(--red); color: #fff; }
+
+/* Postazioni (secondo livello) */
+.sub-tabs .tab-wrap {
+ border-radius: 999px; background: var(--bg); border-color: #d6d2ce;
+}
+.sub-tabs .tab { padding: 8px 10px 8px 15px; font-size: 14px; color: var(--mut); }
+.sub-tabs .tab-wrap:hover { background: #fff; border-color: var(--red); }
+.sub-tabs .tab-wrap:hover .tab { color: var(--ink); }
+.sub-tabs .tab-wrap.on {
+ background: var(--red); border-color: var(--red);
  box-shadow: 0 4px 12px rgba(178, 51, 56, 0.25);
 }
+.sub-tabs .tab-wrap.on .tab { color: #fff; }
+.sub-tabs .tab-wrap.on .tab-del:hover { background: var(--red-d); color: #fff; }
 
-/* Pallino indicatore foglio compilato */
+/* Pallino indicatore postazione compilata */
 .tab-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; display: inline-block; flex: none; }
-.tab.on .tab-dot { background: #4ade80; box-shadow: 0 0 0 2px rgba(255,255,255,0.25); }
+.tab-wrap.on .tab-dot { background: #4ade80; box-shadow: 0 0 0 2px rgba(255,255,255,0.25); }
 
 /* Strumenti: Dipendenti e Colonne */
 .tools-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; align-items: start; }
@@ -70,8 +90,8 @@ main { padding-bottom: 120px; }
 .pillbtn { border: 0; background: var(--red-t); color: var(--red-d); font: inherit; font-size: 13px; font-weight: 800; padding: 8px 14px; border-radius: 999px; cursor: pointer; transition: all .15s; white-space: nowrap; }
 .pillbtn:hover { filter: brightness(0.96); }
 .pillbtn[aria-expanded="true"] { background: var(--ink); color: #fff; }
-.add-struct-btn { background: var(--ink); color: #fff; padding: 7px 14px; font-size: 12px; }
-.add-struct-btn:hover { background: var(--red); }
+.add-post-btn { background: var(--ink); color: #fff; padding: 7px 14px; font-size: 12px; }
+.add-post-btn:hover { background: var(--red); }
 
 /* Box Dipendenti con assegnazione Campi / Categorie */
 .empbox { display: grid; gap: 14px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
@@ -128,22 +148,11 @@ main { padding-bottom: 120px; }
 .dot.c { background: var(--c-bg); border: 2px solid var(--c-bd); }
 .leg-hint { margin-left: auto; font-size: 12px; color: var(--red-d); font-weight: 700; }
 
-/* Sezioni Tabelle (Ordinaria ed Extra/Continuativa) */
+/* Sezione Tabella Principale */
 .table-section { display: grid; gap: 8px; }
 .table-header-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 4px; }
 .table-header-bar h3 { margin: 0; font-size: 16px; font-weight: 800; color: var(--ink); }
 .table-badge { font-size: 12px; font-weight: 700; color: var(--mut); background: #e9e7e4; padding: 4px 10px; border-radius: 999px; }
-
-.extra-section { margin-top: 8px; padding-top: 16px; border-top: 2px dashed #d6d2ce; }
-.extra-bar h3 { color: #581c87; }
-.extra-sub { margin: 2px 0 0; font-size: 13px; color: var(--mut); }
-.extra-pill { background: var(--c-bg); color: var(--c-tx); border: 1px solid var(--c-bd); }
-.extra-pill[aria-expanded="true"] { background: #581c87; color: #fff; }
-.extra-cols-card { border-color: var(--c-bd); background: #faf5ff; }
-.extra-empty { background: #faf5ff; border: 1.5px dashed var(--c-bd); color: var(--c-tx); border-radius: var(--r); padding: 18px; text-align: center; font-size: 14px; }
-.preset-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
-.preset-btn { border: 1px solid var(--c-bd); background: #fff; color: var(--c-tx); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; }
-.preset-btn:hover { background: var(--c-bg); }
 
 /* Griglia e Tabella ingrandita e pulita */
 .gridwrap { overflow: auto; max-height: calc(100vh - 150px); max-height: calc(100dvh - 150px); overscroll-behavior: contain; border-radius: var(--r); border: 1px solid #d6d2ce; background: #fff; box-shadow: 0 6px 20px rgba(0,0,0,0.04); -webkit-overflow-scrolling: touch; }
@@ -198,7 +207,7 @@ main { padding-bottom: 120px; }
 .cell-btn.filled.col-c { background: var(--c-bg); border-color: var(--c-bd); color: var(--c-tx); }
 .cell-btn.filled.is-no { background: #f1f0ee; border-color: #d6d2ce; color: #8c8c91; text-decoration: line-through; }
 
-/* Pannello Selettore Dipendente & Nuova Struttura */
+/* Pannello Selettore Dipendente & Nuova Postazione */
 .pk-current { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #fff; border: 2px solid var(--ink); border-radius: 14px; padding: 12px 14px; }
 .pk-current b { font-size: 18px; }
 .pk-clear { border: 0; background: var(--red-t); color: var(--red-d); font: inherit; font-size: 13px; font-weight: 800; padding: 7px 12px; border-radius: 10px; cursor: pointer; }
@@ -221,7 +230,7 @@ main { padding-bottom: 120px; }
 .pk-hours label { font-size: 11px; font-weight: 800; text-transform: uppercase; color: var(--mut); display: block; margin-bottom: 4px; }
 .pk-hours input { width: 100%; font: inherit; font-size: 15px; font-weight: 700; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; }
 
-/* Form modale aggiunta struttura */
+/* Form modale aggiunta postazione */
 .struct-form { display: grid; gap: 14px; }
 .struct-field { display: grid; gap: 6px; }
 .struct-field label { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--mut); }

@@ -54,17 +54,17 @@
  <div id="mStats" class="mstats"></div>
  </div>
 
- <!-- Navigazione Fogli per Categoria e Sotto-foglio -->
+ <!-- Navigazione per Categoria e Postazione -->
  <section class="card nav-card">
  <div class="nav-block">
  <div class="nav-head-row">
  <span class="nav-label">1. Scegli Categoria (Campo Sud, Campo Nord, Parchi)</span>
- <button id="addStructBtn" class="pillbtn add-struct-btn" type="button">+ Nuova struttura</button>
+ <button id="addPostBtn" class="pillbtn add-post-btn" type="button">+ Nuova postazione</button>
  </div>
  <div id="catTabs" class="tabs cat-tabs" role="tablist"></div>
  </div>
  <div id="subNavBlock" class="nav-block sub-block">
- <span class="nav-label" id="subNavLabel">2. Scegli Postazione / Struttura</span>
+ <span class="nav-label" id="subNavLabel">2. Postazioni</span>
  <div id="subTabs" class="tabs sub-tabs" role="tablist"></div>
  </div>
  </section>
@@ -98,8 +98,8 @@
  <section class="card tool-card">
  <div class="tool-head">
  <div>
- <h2>Orari colonne standard</h2>
- <p class="tool-sub" id="colsCountLbl">Turni ordinari del foglio</p>
+ <h2>Orari delle colonne</h2>
+ <p class="tool-sub" id="colsCountLbl">Orari della postazione</p>
  </div>
  <button id="colsBtn" class="pillbtn" type="button" aria-expanded="false">Configura</button>
  </div>
@@ -116,30 +116,13 @@
  <span class="leg-hint">Tocca una casella per scegliere il dipendente del settore</span>
  </div>
 
- <!-- Tabella principale turni standard -->
+ <!-- Tabella principale turni -->
  <div class="table-section">
  <div class="table-header-bar">
- <h3 id="mainTableTitle">Turni Ordinari</h3>
+ <h3 id="mainTableTitle">Turni</h3>
  <span id="mainTableSub" class="table-badge"></span>
  </div>
  <div class="gridwrap" id="mainGridWrap"><table id="grid" class="grid"></table></div>
- </div>
-
- <!-- Tabella secondaria per Orari Continuativi / Turni Extra -->
- <div class="table-section extra-section">
- <div class="table-header-bar extra-bar">
- <div>
- <h3>Tabella Orari Continuativi e Turni Extra</h3>
- <p class="extra-sub">Turni prolungati (es. 12h, H24) o colonne aggiuntive per questo mese</p>
- </div>
- <button id="extraColsBtn" class="pillbtn extra-pill" type="button" aria-expanded="false">+ Orario continuativo / Extra</button>
- </div>
-
- <div id="extraColsBox" class="card extra-cols-card" hidden></div>
- <div id="extraGridWrap" class="gridwrap" hidden><table id="extraGrid" class="grid extra-grid"></table></div>
- <div id="extraEmpty" class="extra-empty">
- Nessuna colonna continuativa o extra attiva in questo foglio. Tocca <b>"+ Orario continuativo / Extra"</b> per aggiungere turni prolungati (es. 06:00–18:00, 18:00–06:00, 08:00–20:00).
- </div>
  </div>
 
  <div class="footer-actions card">
@@ -152,7 +135,7 @@
  </div>
  </main>
 
- <!-- Modal / Bottom Sheet per selezione rapida dipendente o aggiunta struttura -->
+ <!-- Modal / Bottom Sheet per selezione rapida dipendente o aggiunta postazione -->
  <div id="pickerSheet" class="sheet" hidden>
  <div class="sheet-bg" id="pkBg"></div>
  <div class="panel" id="pkPanel" role="dialog" aria-modal="true" aria-labelledby="pkTitle" tabindex="-1">
