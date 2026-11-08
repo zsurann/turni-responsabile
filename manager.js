@@ -123,7 +123,6 @@ function normalizeEmployees(rawList) {
  return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'it'));
 }
 
-// Migrazione stato: unisce eventuali vecchie extraCols dentro cols e preserva categorie/postazioni eliminate
 function migrateState(raw) {
  if (!raw || !Array.isArray(raw.sheets)) return null;
  const byKey = new Map();
@@ -187,7 +186,6 @@ function markDirty() {
  renderCategoryNav();
 }
 
-// Costruisce l'albero completo delle categorie escludendo quelle eliminate dal responsabile
 function getCategories() {
  const delCats = new Set((state && state.deletedCategories) || []);
  const delTitles = new Set((state && state.deletedTitles) || []);
@@ -262,7 +260,6 @@ function deleteCategory(catId) {
  state.customStructures = (state.customStructures || []).filter((cs) => cs.category !== catId && !titlesToRemove.has(canonicalSheetTitle(cs.title)));
  state.sheets = (state.sheets || []).filter((s) => (s.category || categoryOfTitle(s.title)) !== catId && !titlesToRemove.has(canonicalSheetTitle(s.title)));
 
- // Rimuove la categoria anche dai filtri dei dipendenti
  employees.forEach((emp) => {
  emp.cats = emp.cats.filter((c) => c !== catId);
  });
@@ -494,9 +491,9 @@ async function sendNotice() {
  return sent;
 }
 async function publish() {
- const btn = $('#pubBtn');
+ const btn = $('#pubBtn'), btnTxt = $('#pubBtnTxt');
  btn.disabled = true;
- btn.textContent = 'Invio…';
+ btnTxt.textContent = 'Pubblicazione…';
  try {
  flush();
  const r = await api('/api/schedule', {
@@ -528,7 +525,7 @@ async function publish() {
  } catch {
  toast('Errore di rete: riprova');
  }
- btn.textContent = 'Pubblica';
+ btnTxt.textContent = 'Pubblica turni';
  renderBar();
 }
 
@@ -594,7 +591,7 @@ function renderCategoryNav() {
  activeCat = categoryOfTitle(title);
  const curCatObj = cats.find((c) => c.id === activeCat) || cats[0];
 
- // Livello 1: Macro-categorie (CAMPO SUD, CAMPO NORD, PARCHI, ecc.) + pulsante ✕ per eliminarle
+ // Livello 1: Macro-categorie
  const catBox = $('#catTabs');
  catBox.replaceChildren();
  cats.forEach((c) => {
@@ -633,7 +630,7 @@ function renderCategoryNav() {
  catBox.append(wrap);
  });
 
- // Livello 2: Postazioni della categoria attiva + pulsante ✕ per eliminarle
+ // Livello 2: Postazioni della categoria attiva
  const subBlock = $('#subNavBlock');
  const subBox = $('#subTabs');
  subBox.replaceChildren();
@@ -740,7 +737,6 @@ function openAddPostazioneModal(triggerBtn) {
  catGrid.append(newBtn);
  };
 
- // Auto-suggerimento mentre si digita il nome (es. "Parco San Gennaro" -> "PARCHI")
  nameInp.addEventListener('input', () => {
  const guessed = guessCategoryFromName(nameInp.value);
  if (guessed && !manualCatOverride) {
@@ -770,7 +766,6 @@ function openAddPostazioneModal(triggerBtn) {
  : chosenCat;
  if (!finalCat) return toast('Scegli o scrivi una categoria');
 
- // Se la postazione o la categoria erano state eliminate in precedenza, le riattiva
  state.deletedCategories = (state.deletedCategories || []).filter((c) => c !== finalCat);
  state.deletedTitles = (state.deletedTitles || []).filter((t) => t !== postName);
 
@@ -991,7 +986,6 @@ function openCellPicker(sheet, key, colIdx, triggerBtn, showAllCats = false) {
  const hEnd = mkHr('Fine / Prolungamento (opz.)', 'Es. 18', parsed.endHour);
  hrsBox.append(hStart.w, hEnd.w);
 
- // Filtra i dipendenti: mostra solo quelli assegnati alla categoria della postazione attiva
  const assignedEmps = employees.filter((e) => e.cats.includes(sheetCat));
  const otherEmps = employees.filter((e) => !e.cats.includes(sheetCat));
  const visibleEmps = showAllCats ? employees : assignedEmps;
@@ -1079,18 +1073,29 @@ $('#pkClose').addEventListener('click', closeCellPicker);
 $('#pkBg').addEventListener('click', closeCellPicker);
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeCellPicker(); });
 
-/* ---------- Interfaccia Principale ---------- */
+/* ---------- Interfaccia Principale e Dock di Pubblicazione ---------- */
 function renderBar() {
- const pub = lsGet(LS_PUB, null), st = $('#pubStatus');
+ const pub = lsGet(LS_PUB, null);
+ const bar = $('#pubbar'), ttl = $('#pubTitle'), st = $('#pubStatus');
  const pending = !!state.noticePending;
- st.className = state.dirty || pending ? 'dirty' : '';
- if (state.dirty) st.textContent = 'Bozza salvata sul dispositivo · non ancora pubblicata';
- else if (pending) st.textContent = 'Pubblicato, ma l\'avviso non è partito';
- else if (pub && pub.version) {
+ const isDirty = !!(state.dirty || pending);
+
+ bar.classList.toggle('is-dirty', isDirty);
+ if (state.dirty) {
+ ttl.textContent = 'Modifiche in bozza da pubblicare';
+ st.textContent = 'Salvate sul dispositivo · premi Pubblica turni per inviarle a tutti';
+ } else if (pending) {
+ ttl.textContent = 'Avviso push in sospeso';
+ st.textContent = 'Turni salvati, ma la notifica non è partita · riprova';
+ } else if (pub && pub.version) {
  const d = new Date(pub.version);
- st.textContent = 'Pubblicato il ' + d.getDate() + ' ' + MES3[d.getMonth()] + ' alle ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
- } else st.textContent = 'Niente di pubblicato';
- $('#pubBtn').disabled = !(state.dirty || pending);
+ ttl.textContent = 'Tutti i turni sono pubblicati e sincronizzati';
+ st.textContent = 'Ultimo invio il ' + d.getDate() + ' ' + MES3[d.getMonth()] + ' alle ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+ } else {
+ ttl.textContent = 'Pronto per la pubblicazione';
+ st.textContent = 'Compila le caselle e pubblica i turni';
+ }
+ $('#pubBtn').disabled = !isDirty;
 }
 
 function renderColsEditor(s) {
@@ -1232,7 +1237,6 @@ function renderAllGrids(s) {
 function render() {
  const validTitles = allAvailableTitles();
  if (!validTitles.length) {
- // Se tutte le categorie/postazioni fossero state cancellate, ripristina la prima di default
  state.deletedCategories = [];
  state.deletedTitles = [];
  }

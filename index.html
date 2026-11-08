@@ -59,7 +59,10 @@
  <div class="nav-block">
  <div class="nav-head-row">
  <span class="nav-label">1. Scegli Categoria (Campo Sud, Campo Nord, Parchi)</span>
- <button id="addPostBtn" class="pillbtn add-post-btn" type="button">+ Nuova postazione</button>
+ <button id="addPostBtn" class="pillbtn add-post-btn" type="button">
+ <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
+ <span>Nuova postazione</span>
+ </button>
  </div>
  <div id="catTabs" class="tabs cat-tabs" role="tablist"></div>
  </div>
@@ -125,11 +128,21 @@
  <div class="gridwrap" id="mainGridWrap"><table id="grid" class="grid"></table></div>
  </div>
 
+ <!-- Sezione finale pulita e professionale -->
  <div class="footer-actions card">
- <p class="hint">Tocca qualsiasi casella per assegnare un dipendente del settore o impostare un prolungamento (es. <b>ROSSI M. 18</b> finisce alle 18:00, <b>18 ROSSI M.</b> inizia alle 18:00). Le modifiche restano in bozza finché non premi <b>Pubblica</b>.</p>
+ <div class="footer-guide">
+ <div class="fg-icon" aria-hidden="true">💡</div>
+ <p class="hint">Tocca qualsiasi casella per assegnare un dipendente del settore o impostare un prolungamento d'orario (es. <b>ROSSI M. 18</b> finisce alle 18:00, <b>18 ROSSI M.</b> inizia alle 18:00). Le modifiche restano salvate in bozza sul tuo dispositivo finché non premi <b>Pubblica turni</b>.</p>
+ </div>
  <div class="footer-btns">
- <button id="reload" class="linkbtn" type="button">↻ Ricarica dal server (scarta bozza)</button>
- <button id="logout" class="linkbtn" type="button">Esci dall'account</button>
+ <button id="reload" class="sec-btn" type="button">
+ <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M3 12a9 9 0 1 0 3-6.7L3 8m0-5v5h5"/></svg>
+ <span>Ricarica dal server (scarta bozza)</span>
+ </button>
+ <button id="logout" class="sec-btn danger-outline" type="button">
+ <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4m7 14 5-5-5-5m5 5H9"/></svg>
+ <span>Esci dall'account</span>
+ </button>
  </div>
  </div>
  </div>
@@ -151,9 +164,21 @@
  </div>
  </div>
 
+ <!-- Nuova Dock Bar di Pubblicazione Fluttuante -->
  <div id="pubbar" class="pubbar" hidden>
- <div class="pubinfo"><span id="pubStatus"></span></div>
- <button id="pubBtn" class="big" type="button">Pubblica</button>
+ <div class="pubbar-inner">
+ <div class="pubinfo">
+ <span id="pubDot" class="pub-dot"></span>
+ <div class="pub-texts">
+ <strong id="pubTitle">Stato sincronizzazione</strong>
+ <span id="pubStatus">Controllo modifiche…</span>
+ </div>
+ </div>
+ <button id="pubBtn" class="pub-cta" type="button">
+ <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M12 19V5m0 0-6 6m6-6 6 6"/></svg>
+ <span id="pubBtnTxt">Pubblica turni</span>
+ </button>
+ </div>
  </div>
  <div id="toast" class="toast" role="status" hidden></div>
 
