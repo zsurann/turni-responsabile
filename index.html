@@ -57,11 +57,14 @@
  <!-- Navigazione Fogli per Categoria e Sotto-foglio -->
  <section class="card nav-card">
  <div class="nav-block">
- <span class="nav-label">1. Scegli Campo / Categoria</span>
+ <div class="nav-head-row">
+ <span class="nav-label">1. Scegli Categoria (Campo Sud, Campo Nord, Parchi)</span>
+ <button id="addStructBtn" class="pillbtn add-struct-btn" type="button">+ Nuova struttura</button>
+ </div>
  <div id="catTabs" class="tabs cat-tabs" role="tablist"></div>
  </div>
  <div id="subNavBlock" class="nav-block sub-block">
- <span class="nav-label" id="subNavLabel">2. Scegli Postazione / Ruolo</span>
+ <span class="nav-label" id="subNavLabel">2. Scegli Postazione / Struttura</span>
  <div id="subTabs" class="tabs sub-tabs" role="tablist"></div>
  </div>
  </section>
@@ -71,18 +74,24 @@
  <section class="card tool-card">
  <div class="tool-head">
  <div>
- <h2>Lista dipendenti</h2>
+ <h2>Lista dipendenti e campi</h2>
  <p class="tool-sub" id="empCountLbl">0 dipendenti salvati</p>
  </div>
  <button id="empBtn" class="pillbtn" type="button" aria-expanded="false">Gestisci</button>
  </div>
  <div id="empBox" class="empbox" hidden>
- <form id="empForm" class="row" autocomplete="off">
- <input id="empInput" type="text" placeholder="Es. ROSSI M. oppure CELENTANO" autocapitalize="characters" spellcheck="false">
+ <form id="empForm" class="emp-add-form" autocomplete="off">
+ <div class="row">
+ <input id="empInput" type="text" placeholder="Nome dipendente (es. MURANTE)" autocapitalize="characters" spellcheck="false">
  <button type="submit">Aggiungi</button>
+ </div>
+ <div class="emp-cats-pick">
+ <span class="emp-cats-lbl">Campi assegnati al nuovo dipendente:</span>
+ <div id="empNewCats" class="cat-checks"></div>
+ </div>
  </form>
  <div id="empList" class="emplist"></div>
- <p class="hint">Tocca una casella nella tabella dei turni per assegnare rapidamente uno di questi dipendenti senza scrivere a mano.</p>
+ <p class="hint">Tocca i badge dei campi accanto a ogni dipendente per abilitarlo o disabilitarlo in quel settore. Nella tabella compariranno solo i dipendenti assegnati alla categoria attiva.</p>
  </div>
  </section>
 
@@ -104,7 +113,7 @@
  <span class="leg-item"><i class="dot p"></i>Pomeriggio</span>
  <span class="leg-item"><i class="dot n"></i>Notte</span>
  <span class="leg-item"><i class="dot c"></i>Continuativo / Extra</span>
- <span class="leg-hint">Tocca una casella per scegliere il dipendente dalla lista</span>
+ <span class="leg-hint">Tocca una casella per scegliere il dipendente del settore</span>
  </div>
 
  <!-- Tabella principale turni standard -->
@@ -127,14 +136,14 @@
  </div>
 
  <div id="extraColsBox" class="card extra-cols-card" hidden></div>
- <div class="gridwrap" id="extraGridWrap" hidden><table id="extraGrid" class="grid extra-grid"></table></div>
+ <div id="extraGridWrap" class="gridwrap" hidden><table id="extraGrid" class="grid extra-grid"></table></div>
  <div id="extraEmpty" class="extra-empty">
  Nessuna colonna continuativa o extra attiva in questo foglio. Tocca <b>"+ Orario continuativo / Extra"</b> per aggiungere turni prolungati (es. 06:00–18:00, 18:00–06:00, 08:00–20:00).
  </div>
  </div>
 
  <div class="footer-actions card">
- <p class="hint">Tocca qualsiasi casella per assegnare un dipendente dalla lista o impostare un prolungamento (es. <b>ROSSI M. 18</b> finisce alle 18:00, <b>18 ROSSI M.</b> inizia alle 18:00). Le modifiche restano in bozza finché non premi <b>Pubblica</b>.</p>
+ <p class="hint">Tocca qualsiasi casella per assegnare un dipendente del settore o impostare un prolungamento (es. <b>ROSSI M. 18</b> finisce alle 18:00, <b>18 ROSSI M.</b> inizia alle 18:00). Le modifiche restano in bozza finché non premi <b>Pubblica</b>.</p>
  <div class="footer-btns">
  <button id="reload" class="linkbtn" type="button">↻ Ricarica dal server (scarta bozza)</button>
  <button id="logout" class="linkbtn" type="button">Esci dall'account</button>
@@ -143,7 +152,7 @@
  </div>
  </main>
 
- <!-- Modal / Bottom Sheet per selezione rapida dipendente -->
+ <!-- Modal / Bottom Sheet per selezione rapida dipendente o aggiunta struttura -->
  <div id="pickerSheet" class="sheet" hidden>
  <div class="sheet-bg" id="pkBg"></div>
  <div class="panel" id="pkPanel" role="dialog" aria-modal="true" aria-labelledby="pkTitle" tabindex="-1">

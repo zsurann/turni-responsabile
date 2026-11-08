@@ -1,4 +1,4 @@
-/* Stili potenziati per l'app del responsabile: categorie a 2 livelli, tabelle più grandi, colori e selettore dipendenti */
+/* Stili potenziati per l'app del responsabile: categorie con Parchi, dipendenti per settore e tabelle ingrandite */
 :root {
  --m-bg: #fff9db; --m-bd: #f5d97e; --m-tx: #664d03;
  --p-bg: #fdecec; --p-bd: #f5bcbc; --p-tx: #842029;
@@ -30,7 +30,8 @@ main { padding-bottom: 120px; }
 
 /* Navigazione Categorie e Sotto-fogli a 2 livelli */
 .nav-card { display: grid; gap: 14px; padding: 16px 18px; }
-.nav-block { display: grid; gap: 8px; }
+.nav-block { display: grid; gap: 10px; }
+.nav-head-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .sub-block { padding-top: 12px; border-top: 1px dashed var(--line); animation: fadeIn .25s var(--ease); }
 .nav-label { font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--mut); }
 
@@ -43,7 +44,8 @@ main { padding-bottom: 120px; }
 }
 .tab:hover { border-color: var(--red); transform: translateY(-1px); }
 .tab.on { background: var(--ink); color: #fff; border-color: var(--ink); box-shadow: 0 4px 12px rgba(0,0,0,.14); }
-.tab.add { color: var(--red-d); background: var(--red-t); border-color: transparent; font-size: 13px; padding: 9px 14px; border-radius: 999px; }
+.tab .cat-cnt { font-size: 11px; font-weight: 800; padding: 2px 7px; border-radius: 999px; background: var(--bg); color: var(--mut); }
+.tab.on .cat-cnt { background: rgba(255,255,255,0.2); color: #fff; }
 
 /* Sotto-fogli (secondo livello) */
 .sub-tabs .tab {
@@ -61,20 +63,49 @@ main { padding-bottom: 120px; }
 .tab.on .tab-dot { background: #4ade80; box-shadow: 0 0 0 2px rgba(255,255,255,0.25); }
 
 /* Strumenti: Dipendenti e Colonne */
-.tools-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; align-items: start; }
+.tools-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; align-items: start; }
 .tool-card { padding: 14px 16px; }
 .tool-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .tool-sub { margin: 2px 0 0; font-size: 13px; color: var(--mut); }
 .pillbtn { border: 0; background: var(--red-t); color: var(--red-d); font: inherit; font-size: 13px; font-weight: 800; padding: 8px 14px; border-radius: 999px; cursor: pointer; transition: all .15s; white-space: nowrap; }
 .pillbtn:hover { filter: brightness(0.96); }
 .pillbtn[aria-expanded="true"] { background: var(--ink); color: #fff; }
+.add-struct-btn { background: var(--ink); color: #fff; padding: 7px 14px; font-size: 12px; }
+.add-struct-btn:hover { background: var(--red); }
 
-/* Box Dipendenti */
-.empbox { display: grid; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
-.emplist { display: flex; flex-wrap: wrap; gap: 8px; }
-.emp-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--bg); border: 1px solid #d6d2ce; border-radius: 999px; padding: 6px 12px; font-size: 14px; font-weight: 700; color: var(--ink); }
-.emp-chip button { border: 0; background: #fff; color: var(--red-d); width: 20px; height: 20px; border-radius: 50%; font-size: 12px; line-height: 1; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
-.emp-chip button:hover { background: var(--red); color: #fff; }
+/* Box Dipendenti con assegnazione Campi / Categorie */
+.empbox { display: grid; gap: 14px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.emp-add-form { display: grid; gap: 10px; background: var(--bg); padding: 12px; border-radius: 14px; border: 1px solid var(--line); }
+.emp-cats-pick { display: grid; gap: 6px; }
+.emp-cats-lbl { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--mut); }
+.cat-checks { display: flex; flex-wrap: wrap; gap: 6px; }
+.cat-chk {
+ border: 1.5px solid #d6d2ce; background: #fff; color: var(--mut);
+ border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 12px; font-weight: 800;
+ cursor: pointer; transition: all .15s;
+}
+.cat-chk.on { background: var(--red); border-color: var(--red); color: #fff; }
+
+.emplist { display: grid; gap: 8px; max-height: 320px; overflow-y: auto; padding-right: 2px; }
+.emp-row {
+ display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+ background: var(--bg); border: 1px solid #dedad6; border-radius: 12px; padding: 9px 12px;
+}
+.emp-name { font-size: 15px; font-weight: 800; color: var(--ink); min-width: 120px; }
+.emp-row-cats { display: flex; flex-wrap: wrap; gap: 5px; flex: 1; justify-content: flex-end; }
+.emp-cat-tag {
+ border: 1px solid #d6d2ce; background: #fff; color: var(--mut);
+ border-radius: 999px; padding: 3px 9px; font: inherit; font-size: 11px; font-weight: 800;
+ cursor: pointer; transition: all .15s;
+}
+.emp-cat-tag.on { background: var(--ink); border-color: var(--ink); color: #fff; }
+.emp-cat-tag:hover { border-color: var(--red); }
+.emp-del {
+ border: 0; background: #fff; color: var(--red-d); width: 26px; height: 26px;
+ border-radius: 50%; font-size: 13px; line-height: 1; font-weight: 800;
+ cursor: pointer; box-shadow: 0 0 0 1px var(--line); flex: none;
+}
+.emp-del:hover { background: var(--red); color: #fff; }
 
 /* Box Colonne */
 .linkbtn { background: none; border: 0; padding: 6px 0; font: inherit; font-size: 14px; font-weight: 700; color: var(--red-d); cursor: pointer; text-align: left; }
@@ -142,7 +173,7 @@ main { padding-bottom: 120px; }
 .grid tr.we td.day span { color: var(--red-d); }
 .grid tr.is-today td { background: #fff8eb; }
 .grid tr.is-today td.day { background: var(--red); color: #fff; }
-.grid tr.is-today td.day span { color: var(--red-d); color: #fff; }
+.grid tr.is-today td.day span { color: #fff; }
 
 /* Caselle (Celle) più grandi e colorate quando compilate */
 .cell-btn {
@@ -167,7 +198,7 @@ main { padding-bottom: 120px; }
 .cell-btn.filled.col-c { background: var(--c-bg); border-color: var(--c-bd); color: var(--c-tx); }
 .cell-btn.filled.is-no { background: #f1f0ee; border-color: #d6d2ce; color: #8c8c91; text-decoration: line-through; }
 
-/* Pannello Selettore Dipendente */
+/* Pannello Selettore Dipendente & Nuova Struttura */
 .pk-current { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #fff; border: 2px solid var(--ink); border-radius: 14px; padding: 12px 14px; }
 .pk-current b { font-size: 18px; }
 .pk-clear { border: 0; background: var(--red-t); color: var(--red-d); font: inherit; font-size: 13px; font-weight: 800; padding: 7px 12px; border-radius: 10px; cursor: pointer; }
@@ -189,6 +220,24 @@ main { padding-bottom: 120px; }
 .pk-hours { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; background: #fff; padding: 12px; border-radius: 14px; border: 1px solid var(--line); }
 .pk-hours label { font-size: 11px; font-weight: 800; text-transform: uppercase; color: var(--mut); display: block; margin-bottom: 4px; }
 .pk-hours input { width: 100%; font: inherit; font-size: 15px; font-weight: 700; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; }
+
+/* Form modale aggiunta struttura */
+.struct-form { display: grid; gap: 14px; }
+.struct-field { display: grid; gap: 6px; }
+.struct-field label { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--mut); }
+.struct-field input { font: inherit; font-size: 17px; font-weight: 700; padding: 12px 14px; border: 2px solid var(--line); border-radius: 12px; background: #fff; text-transform: uppercase; }
+.struct-field input:focus { border-color: var(--red); outline: 0; }
+.struct-cats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.struct-cat-btn {
+ display: flex; flex-direction: column; gap: 3px; text-align: left;
+ padding: 12px 14px; border: 2px solid var(--line); border-radius: 12px;
+ background: #fff; font: inherit; cursor: pointer; transition: all .15s;
+}
+.struct-cat-btn b { font-size: 15px; font-weight: 800; color: var(--ink); }
+.struct-cat-btn span { font-size: 11px; color: var(--mut); font-weight: 600; }
+.struct-cat-btn.on { border-color: var(--red); background: var(--red-t); }
+.struct-cat-btn.on b { color: var(--red-d); }
+.suggest-badge { display: inline-block; font-size: 12px; font-weight: 700; color: var(--ok-tx); background: var(--ok-bg); border: 1px solid var(--ok-bd); padding: 6px 10px; border-radius: 10px; }
 
 .footer-actions { display: grid; gap: 10px; }
 .footer-btns { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }

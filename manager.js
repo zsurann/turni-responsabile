@@ -1,7 +1,7 @@
 'use strict';
 const API = String(window.TURNI_API || '').replace(/\/$/, '');
-const LS_STATE = 'resp.state.v2', LS_LEGACY_STATE = 'resp.state.v1';
-const LS_PW = 'resp.pw.v1', LS_PUB = 'resp.pub.v1', LS_EMP = 'resp.emp.v1', LS_UI = 'resp.ui.v1';
+const LS_STATE = 'resp.state.v3', LS_LEGACY_V2 = 'resp.state.v2', LS_LEGACY_V1 = 'resp.state.v1';
+const LS_PW = 'resp.pw.v1', LS_PUB = 'resp.pub.v1', LS_EMP = 'resp.emp.v2', LS_LEGACY_EMP = 'resp.emp.v1', LS_UI = 'resp.ui.v1';
 
 const MESI = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
 const MES3 = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
@@ -18,9 +18,8 @@ const EXTRA_PRESETS = [
  { start: '22:00', end: '06:00', label: 'Turno Extra Notte' },
 ];
 
-// Struttura gerarchica delle categorie principali e relativi sotto-fogli
-// Nota: `exportTitle` mantiene il formato atteso da `classifyText` nell'app dei turnisti (es. TERRA DEL SOLE per Gabbiotto)
-const CATEGORY_TREE = [
+// Struttura gerarchica di base: CAMPO SUD, CAMPO NORD, PARCHI
+const BASE_CATEGORIES = [
  {
  id: 'CAMPO SUD',
  label: 'CAMPO SUD',
@@ -40,8 +39,8 @@ const CATEGORY_TREE = [
  ],
  },
  {
- id: 'PARCO CAFASSO',
- label: 'PARCO CAFASSO',
+ id: 'PARCHI',
+ label: 'PARCHI',
  items: [
  { title: 'PARCO CAFASSO', label: 'PARCO CAFASSO', exportTitle: 'PARCO CAFASSO' },
  ],
@@ -59,7 +58,6 @@ const pad = (n) => String(n).padStart(2, '0');
 const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* ignore */ } };
 
-// Normalizza i titoli (e converte automaticamente "TERRA DEL SOLE" in "GABBIOTTO" nell'interfaccia del responsabile)
 function canonicalSheetTitle(raw) {
  const t = String(raw || '').trim().toUpperCase().replace(/[_.]+/g, ' ').replace(/\s+/g, ' ');
  if (!t) return '';
@@ -79,33 +77,63 @@ function canonicalSheetTitle(raw) {
  return t;
 }
 
-// Per la pubblicazione: garantisce che l'app dei turnisti riconosca "Gabbiotto" (tramite TERRA DEL SOLE)
+// Indovina la categoria migliore in base al nome della struttura (es. "Parco San Gennaro" -> "PARCHI")
+function guessCategoryFromName(rawName) {
+ const t = String(rawName || '').trim().toUpperCase();
+ if (/\bPARCO\b|\bPARCHI\b|\bVILLA\b|\bGIARDIN/i.test(t)) return 'PARCHI';
+ if (/\bNORD\b/.test(t) && !/\bCAMPO\s+SUD\b/.test(t)) return 'CAMPO NORD';
+ if (/\bSUD\b/.test(t)) return 'CAMPO SUD';
+ return '';
+}
+
 function exportTitleForClients(canonTitle) {
- for (const cat of CATEGORY_TREE) {
+ for (const cat of BASE_CATEGORIES) {
  const found = cat.items.find((it) => it.title === canonTitle);
  if (found) return found.exportTitle;
  }
  return canonTitle;
 }
 
-let state = lsGet(LS_STATE, null) || migrateState(lsGet(LS_LEGACY_STATE, null));
-let employees = lsGet(LS_EMP, []);
-let pw = lsGet(LS_PW, '');
 const nowInit = new Date();
 let month = nowInit.getFullYear() + '-' + pad(nowInit.getMonth() + 1);
 let title = 'CAMPO SUD GABBIOTTO';
 let activeCat = 'CAMPO SUD';
+
+let state = migrateState(lsGet(LS_STATE, null) || lsGet(LS_LEGACY_V2, null) || lsGet(LS_LEGACY_V1, null));
+let employees = normalizeEmployees(lsGet(LS_EMP, null) || lsGet(LS_LEGACY_EMP, []));
+let pw = lsGet(LS_PW, '');
 let saveTimer = 0, toastTimer = 0, scrollTimer = 0, firstRender = true;
 let activePicker = null;
+let newEmpSelectedCats = new Set(['CAMPO SUD', 'CAMPO NORD', 'PARCHI']);
 
 const ui = lsGet(LS_UI, {});
 if (/^\d{4}-\d{2}$/.test(ui.month || '')) month = ui.month;
 if (typeof ui.title === 'string' && ui.title) title = canonicalSheetTitle(ui.title);
 
-// Garantisce che ogni foglio contenga SOLO le date del proprio mese YYYY-MM
+// Normalizza la lista dipendenti: [{ name: 'MURANTE', cats: ['CAMPO NORD'] }, ...]
+function normalizeEmployees(rawList) {
+ if (!Array.isArray(rawList)) return [];
+ const map = new Map();
+ rawList.forEach((item) => {
+ if (typeof item === 'string') {
+ const nm = item.trim().toUpperCase().replace(/\s+/g, ' ');
+ if (nm) map.set(nm, { name: nm, cats: ['CAMPO SUD', 'CAMPO NORD', 'PARCHI'] });
+ } else if (item && typeof item.name === 'string') {
+ const nm = item.name.trim().toUpperCase().replace(/\s+/g, ' ');
+ if (!nm) return;
+ const cats = Array.isArray(item.cats) && item.cats.length
+ ? [...new Set(item.cats.map((c) => (c === 'PARCO CAFASSO' ? 'PARCHI' : String(c).trim().toUpperCase())))]
+ : ['CAMPO SUD', 'CAMPO NORD', 'PARCHI'];
+ map.set(nm, { name: nm, cats });
+ }
+ });
+ return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'it'));
+}
+
 function migrateState(raw) {
  if (!raw || !Array.isArray(raw.sheets)) return null;
  const byKey = new Map();
+ const customStructures = Array.isArray(raw.customStructures) ? raw.customStructures : [];
  raw.sheets.forEach((s) => {
  const t = canonicalSheetTitle(s.title);
  const m = /^\d{4}-\d{2}$/.test(s.month || '') ? s.month : month;
@@ -121,9 +149,10 @@ function migrateState(raw) {
  Object.entries(s.extraCells || {}).forEach(([date, arr]) => {
  if (date.slice(0, 7) === m && Array.isArray(arr)) extraCells[date] = arr.slice(0, extraCols.length);
  });
- byKey.set(key, { title: t, month: m, cols, extraCols, cells, extraCells });
+ const cat = s.category === 'PARCO CAFASSO' ? 'PARCHI' : (s.category || '');
+ byKey.set(key, { title: t, category: cat, month: m, cols, extraCols, cells, extraCells });
  });
- return { sheets: [...byKey.values()], dirty: !!raw.dirty, noticePending: !!raw.noticePending };
+ return { sheets: [...byKey.values()], customStructures, dirty: !!raw.dirty, noticePending: !!raw.noticePending };
 }
 
 function toast(t) {
@@ -149,28 +178,32 @@ function markDirty() {
  renderCategoryNav();
 }
 
-// Restituisce l'albero completo delle categorie (quelle predefinite + eventuali fogli extra creati dal responsabile)
+// Costruisce l'albero completo delle categorie (CAMPO SUD, CAMPO NORD, PARCHI + strutture aggiunte)
 function getCategories() {
- const cats = CATEGORY_TREE.map((c) => ({ id: c.id, label: c.label, items: c.items.map((x) => ({ ...x })) }));
+ const cats = BASE_CATEGORIES.map((c) => ({ id: c.id, label: c.label, items: c.items.map((x) => ({ ...x })) }));
  const knownTitles = new Set();
  cats.forEach((c) => c.items.forEach((it) => knownTitles.add(it.title)));
 
- (state && state.sheets ? state.sheets : []).forEach((s) => {
- const t = canonicalSheetTitle(s.title);
+ const addItemToCat = (structTitle, catName) => {
+ const t = canonicalSheetTitle(structTitle);
  if (!t || knownTitles.has(t)) return;
  knownTitles.add(t);
- if (t.startsWith('CAMPO SUD ')) {
- cats[0].items.push({ title: t, label: t, exportTitle: t });
- } else if (t.startsWith('CAMPO NORD ')) {
- cats[1].items.push({ title: t, label: t, exportTitle: t });
- } else {
- let customCat = cats.find((c) => c.id === t);
- if (!customCat) {
- customCat = { id: t, label: t, items: [{ title: t, label: t, exportTitle: t }] };
- cats.push(customCat);
+ let targetCat = catName ? String(catName).trim().toUpperCase() : '';
+ if (targetCat === 'PARCO CAFASSO') targetCat = 'PARCHI';
+ if (!targetCat) targetCat = guessCategoryFromName(t) || 'PARCHI';
+
+ let catObj = cats.find((c) => c.id === targetCat);
+ if (!catObj) {
+ catObj = { id: targetCat, label: targetCat, items: [] };
+ cats.push(catObj);
  }
+ catObj.items.push({ title: t, label: t, exportTitle: t });
+ };
+
+ if (state) {
+ (state.customStructures || []).forEach((cs) => addItemToCat(cs.title, cs.category));
+ (state.sheets || []).forEach((s) => addItemToCat(s.title, s.category));
  }
- });
  return cats;
 }
 
@@ -180,7 +213,7 @@ function categoryOfTitle(t) {
  for (const c of cats) {
  if (c.items.some((it) => it.title === ct)) return c.id;
  }
- return cats[0].id;
+ return guessCategoryFromName(ct) || cats[0].id;
 }
 
 function allAvailableTitles() {
@@ -195,7 +228,6 @@ function daysIn(m) {
 }
 const isoDay = (m, d) => m + '-' + pad(d);
 
-// Verifica se un foglio ha almeno un turno compilato nel mese specificato
 function sheetHasData(t, m) {
  const s = sheetFor(t, m, false);
  if (!s) return false;
@@ -203,12 +235,12 @@ function sheetHasData(t, m) {
  return checkMap(s.cells) || checkMap(s.extraCells);
 }
 
-// Restituisce il foglio per (title, month) senza mai mischiare i mesi tra loro
 function sheetFor(t, m, create) {
  const nt = canonicalSheetTitle(t);
  let s = state.sheets.find((x) => canonicalSheetTitle(x.title) === nt && x.month === m);
  if (s) {
  s.title = nt;
+ if (!s.category) s.category = categoryOfTitle(nt);
  if (!Array.isArray(s.extraCols)) s.extraCols = [];
  if (!s.extraCells) s.extraCells = {};
  return s;
@@ -220,7 +252,8 @@ function sheetFor(t, m, create) {
  const ref = sameTitle[0];
  const cols = (ref && ref.cols && ref.cols.length ? ref.cols : DEFAULT_COLS).map((c) => ({ start: c.start, end: c.end, label: c.label || '' }));
  const extraCols = (ref && Array.isArray(ref.extraCols) ? ref.extraCols : []).map((c) => ({ start: c.start, end: c.end, label: c.label || 'Turno Extra' }));
- s = { title: nt, month: m, cols, extraCols, cells: {}, extraCells: {} };
+ const cat = (ref && ref.category) || categoryOfTitle(nt);
+ s = { title: nt, category: cat, month: m, cols, extraCols, cells: {}, extraCells: {} };
  state.sheets.push(s);
  return s;
 }
@@ -257,18 +290,26 @@ function extractPureName(raw) {
  return joined;
 }
 
+// Sincronizza in automatico i dipendenti trovati nei fogli, associandoli al campo del foglio in cui lavorano
 function syncEmployeesFromSheets() {
- const set = new Set(employees.map((e) => e.toUpperCase()));
+ const byName = new Map(employees.map((e) => [e.name, e]));
  let changed = false;
  if (state && Array.isArray(state.sheets)) {
  state.sheets.forEach((s) => {
+ const sCat = s.category || categoryOfTitle(s.title);
  [s.cells || {}, s.extraCells || {}].forEach((map) => {
  Object.values(map).forEach((arr) => {
  (arr || []).forEach((val) => {
  const nm = extractPureName(val);
- if (nm && nm.length >= 2 && !set.has(nm)) {
- set.add(nm);
- employees.push(nm);
+ if (!nm || nm.length < 2) return;
+ let emp = byName.get(nm);
+ if (!emp) {
+ emp = { name: nm, cats: [sCat] };
+ byName.set(nm, emp);
+ employees.push(emp);
+ changed = true;
+ } else if (sCat && !emp.cats.includes(sCat)) {
+ emp.cats.push(sCat);
  changed = true;
  }
  });
@@ -276,7 +317,7 @@ function syncEmployeesFromSheets() {
  });
  });
  }
- employees.sort((a, b) => a.localeCompare(b, 'it'));
+ employees.sort((a, b) => a.name.localeCompare(b.name, 'it'));
  if (changed) lsSet(LS_EMP, employees);
 }
 
@@ -311,6 +352,7 @@ function toDocs() {
  id: s.title + ' ' + MES3[mo - 1] + '-' + String(y).slice(2),
  title: pubTitle,
  uiTitle: s.title,
+ category: s.category || categoryOfTitle(s.title),
  month: s.month,
  cols: allCols,
  stdCount: stdCols.length,
@@ -324,6 +366,7 @@ function fromDocs(docs) {
  (docs || []).forEach((d) => {
  const t = canonicalSheetTitle(d.uiTitle || d.title || d.id);
  if (!t || !Array.isArray(d.rows)) return;
+ const cat = d.category === 'PARCO CAFASSO' ? 'PARCHI' : (d.category || categoryOfTitle(t));
  const rowsByMonth = {};
  d.rows.forEach((r) => {
  if (!r || !/^\d{4}-\d{2}-\d{2}$/.test(r.date || '')) return;
@@ -351,7 +394,7 @@ function fromDocs(docs) {
  cells[r.date] = stdIdx.map((i) => (r.cells && r.cells[i]) || '');
  if (extIdx.length) extraCells[r.date] = extIdx.map((i) => (r.cells && r.cells[i]) || '');
  });
- map.set(key, { title: t, month: m, cols: cols.length ? cols : DEFAULT_COLS.map((c) => ({ ...c })), extraCols, cells, extraCells });
+ map.set(key, { title: t, category: cat, month: m, cols: cols.length ? cols : DEFAULT_COLS.map((c) => ({ ...c })), extraCols, cells, extraCells });
  });
  });
  return [...map.values()];
@@ -365,10 +408,13 @@ async function loadRemote() {
  if (!r.ok) throw new Error('server ' + r.status);
  const d = await r.json();
  if (Array.isArray(d.employees) && d.employees.length) {
- const merged = new Set([...employees, ...d.employees.map((x) => String(x || '').trim().toUpperCase()).filter(Boolean)]);
- employees = [...merged].sort((a, b) => a.localeCompare(b, 'it'));
+ employees = normalizeEmployees([...employees, ...d.employees]);
  }
- state = { sheets: fromDocs(d.docs || []), dirty: false };
+ state = {
+ sheets: fromDocs(d.docs || []),
+ customStructures: Array.isArray(d.customStructures) ? d.customStructures : (state && state.customStructures) || [],
+ dirty: false,
+ };
  syncEmployeesFromSheets();
  lsSet(LS_PUB, { version: d.version });
  persist();
@@ -402,7 +448,7 @@ async function publish() {
  const r = await api('/api/schedule', {
  method: 'PUT',
  headers: { 'content-type': 'application/json' },
- body: JSON.stringify({ docs: toDocs(), employees }),
+ body: JSON.stringify({ docs: toDocs(), employees, customStructures: state.customStructures || [] }),
  });
  if (r.status === 401) { logout(true); return; }
  if (!r.ok) throw new Error('server ' + r.status);
@@ -476,19 +522,19 @@ function renderMonthStats() {
  return d;
  };
  box.replaceChildren(
- mk(activeSheets + ' / ' + totalPossible, 'Fogli compilati in ' + MES3[mo - 1]),
+ mk(activeSheets + ' / ' + totalPossible, 'Strutture compilate in ' + MES3[mo - 1]),
  mk(totalAssigned, 'Turni assegnati in ' + MES3[mo - 1]),
  mk(uniqueOps.size, 'Operatori in ' + MES3[mo - 1])
  );
 }
 
-/* ---------- Navigazione a 2 Livelli: Categorie (CAMPO SUD / CAMPO NORD) -> Sotto-fogli ---------- */
+/* ---------- Navigazione a 2 Livelli: Categorie (CAMPO SUD, CAMPO NORD, PARCHI) -> Strutture ---------- */
 function renderCategoryNav() {
  const cats = getCategories();
  activeCat = categoryOfTitle(title);
  const curCatObj = cats.find((c) => c.id === activeCat) || cats[0];
 
- // Livello 1: Macro-categorie (CAMPO SUD, CAMPO NORD, PARCO CAFASSO, ecc.)
+ // Livello 1: Macro-categorie (CAMPO SUD, CAMPO NORD, PARCHI, ecc.)
  const catBox = $('#catTabs');
  catBox.replaceChildren();
  cats.forEach((c) => {
@@ -498,7 +544,7 @@ function renderCategoryNav() {
  b.type = 'button';
  b.setAttribute('role', 'tab');
  b.setAttribute('aria-selected', String(isOn));
- b.append(el('span', '', c.label));
+ b.append(el('span', '', c.label), el('span', 'cat-cnt', String(c.items.length)));
  if (hasAnyData) {
  const dot = el('i', 'tab-dot');
  dot.title = 'Contiene turni compilati in questo mese';
@@ -506,7 +552,6 @@ function renderCategoryNav() {
  }
  b.addEventListener('click', () => {
  activeCat = c.id;
- // Seleziona il primo sotto-foglio della categoria cliccata
  if (!c.items.some((it) => it.title === title)) {
  title = c.items[0].title;
  }
@@ -515,26 +560,12 @@ function renderCategoryNav() {
  catBox.append(b);
  });
 
- const addCat = el('button', 'tab add', '+ Altro Foglio');
- addCat.type = 'button';
- addCat.addEventListener('click', () => {
- const raw = prompt('Nome del nuovo foglio (es. CAMPO SUD EXTRA o EVENTO SPECIALE):') || '';
- const t = canonicalSheetTitle(raw);
- if (!t) return;
- title = t;
- activeCat = categoryOfTitle(t);
- sheetFor(t, month, true);
- markDirty();
- render();
- });
- catBox.append(addCat);
-
- // Livello 2: Sotto-fogli della categoria attiva (es. GABBIOTTO, RONDA, ROM / LATO SUD, LATO NORD)
+ // Livello 2: Sotto-fogli / Strutture della categoria attiva
  const subBlock = $('#subNavBlock');
  const subBox = $('#subTabs');
  subBox.replaceChildren();
 
- $('#subNavLabel').textContent = '2. Fogli di ' + curCatObj.label + ':';
+ $('#subNavLabel').textContent = '2. Strutture / Postazioni in ' + curCatObj.label + ':';
  curCatObj.items.forEach((it) => {
  const isOn = it.title === title;
  const hasData = sheetHasData(it.title, month);
@@ -557,29 +588,192 @@ function renderCategoryNav() {
  subBlock.hidden = false;
 }
 
-/* ---------- Gestione Lista Dipendenti ---------- */
+/* ---------- Modal: Aggiungi Nuova Struttura con scelta Categoria e Auto-Suggerimento ---------- */
+function openAddStructureModal(triggerBtn) {
+ activePicker = { triggerBtn };
+ $('#pkTitle').textContent = 'Aggiungi nuova struttura';
+ $('#pkSub').textContent = 'Inserisci il nome e scegli la categoria (es. Parchi, Campo Sud, Campo Nord)';
+
+ const body = $('#pkBody');
+ body.replaceChildren();
+
+ const form = el('form', 'struct-form');
+ const nameField = el('div', 'struct-field');
+ nameField.append(el('label', '', 'Nome della struttura / postazione'));
+ const nameInp = el('input');
+ nameInp.type = 'text';
+ nameInp.placeholder = 'Es. PARCO SAN GENNARO';
+ nameInp.autocapitalize = 'characters';
+ nameInp.spellcheck = false;
+ nameField.append(nameInp);
+
+ const suggestBadge = el('div', 'suggest-badge');
+ suggestBadge.hidden = true;
+
+ const catField = el('div', 'struct-field');
+ catField.append(el('label', '', 'Categoria di appartenenza'));
+ const catGrid = el('div', 'struct-cats');
+
+ const existingCats = getCategories().map((c) => c.id);
+ let chosenCat = activeCat || 'PARCHI';
+ let manualCatOverride = false;
+
+ const customCatField = el('div', 'struct-field');
+ customCatField.hidden = true;
+ customCatField.append(el('label', '', 'Nome della nuova categoria'));
+ const customCatInp = el('input');
+ customCatInp.type = 'text';
+ customCatInp.placeholder = 'Es. VIGILANZA EVENTI';
+ customCatField.append(customCatInp);
+
+ const renderCatButtons = () => {
+ catGrid.replaceChildren();
+ existingCats.forEach((cid) => {
+ const btn = el('button', 'struct-cat-btn' + (chosenCat === cid ? ' on' : ''));
+ btn.type = 'button';
+ const desc = cid === 'PARCHI' ? 'Tutti i parchi (es. Cafasso, ecc.)' : (cid === 'CAMPO SUD' ? 'Gabbiotto, Ronda, Sud Rom' : (cid === 'CAMPO NORD' ? 'Gabbiotto, Ronda Nord/Sud' : 'Categoria personalizzata'));
+ btn.append(el('b', '', cid), el('span', '', desc));
+ btn.addEventListener('click', () => {
+ chosenCat = cid;
+ manualCatOverride = true;
+ customCatField.hidden = true;
+ renderCatButtons();
+ });
+ catGrid.append(btn);
+ });
+ const newBtn = el('button', 'struct-cat-btn' + (chosenCat === '__NEW__' ? ' on' : ''));
+ newBtn.type = 'button';
+ newBtn.append(el('b', '', '+ Nuova categoria'), el('span', '', 'Crea un nuovo gruppo'));
+ newBtn.addEventListener('click', () => {
+ chosenCat = '__NEW__';
+ manualCatOverride = true;
+ customCatField.hidden = false;
+ renderCatButtons();
+ customCatInp.focus();
+ });
+ catGrid.append(newBtn);
+ };
+
+ // Auto-suggerimento mentre si digita il nome (es. "Parco San Gennaro" -> "PARCHI")
+ nameInp.addEventListener('input', () => {
+ const guessed = guessCategoryFromName(nameInp.value);
+ if (guessed && !manualCatOverride) {
+ chosenCat = guessed;
+ customCatField.hidden = true;
+ suggestBadge.textContent = '✓ Categoria suggerita automaticamente dal nome: ' + guessed;
+ suggestBadge.hidden = false;
+ renderCatButtons();
+ } else if (!guessed) {
+ suggestBadge.hidden = true;
+ }
+ });
+
+ renderCatButtons();
+ catField.append(catGrid);
+
+ const submitBtn = el('button', 'big', 'Aggiungi struttura');
+ submitBtn.type = 'submit';
+
+ form.append(nameField, suggestBadge, catField, customCatField, submitBtn);
+ form.addEventListener('submit', (e) => {
+ e.preventDefault();
+ const structName = canonicalSheetTitle(nameInp.value);
+ if (!structName) return toast('Inserisci il nome della struttura');
+ const finalCat = chosenCat === '__NEW__'
+ ? String(customCatInp.value || '').trim().toUpperCase().replace(/\s+/g, ' ')
+ : chosenCat;
+ if (!finalCat) return toast('Scegli o scrivi una categoria');
+
+ if (!Array.isArray(state.customStructures)) state.customStructures = [];
+ if (!state.customStructures.some((x) => canonicalSheetTitle(x.title) === structName)) {
+ state.customStructures.push({ title: structName, category: finalCat });
+ }
+ const sh = sheetFor(structName, month, true);
+ sh.category = finalCat;
+ title = structName;
+ activeCat = finalCat;
+ markDirty();
+ closeCellPicker();
+ render();
+ toast('Struttura "' + structName + '" aggiunta in ' + finalCat);
+ });
+
+ body.append(form);
+ $('#pickerSheet').hidden = false;
+ document.body.classList.add('lock');
+ setTimeout(() => nameInp.focus(), 50);
+}
+
+$('#addStructBtn').addEventListener('click', (e) => openAddStructureModal(e.currentTarget));
+
+/* ---------- Gestione Lista Dipendenti con Campi / Categorie assegnate ---------- */
 function renderEmployees() {
+ const cats = getCategories().map((c) => c.id);
+
+ // Selettori categoria per il nuovo dipendente da aggiungere
+ const newCatsBox = $('#empNewCats');
+ newCatsBox.replaceChildren();
+ cats.forEach((cid) => {
+ const on = newEmpSelectedCats.has(cid);
+ const b = el('button', 'cat-chk' + (on ? ' on' : ''), (on ? '✓ ' : '') + cid);
+ b.type = 'button';
+ b.addEventListener('click', () => {
+ if (newEmpSelectedCats.has(cid)) {
+ if (newEmpSelectedCats.size > 1) newEmpSelectedCats.delete(cid);
+ } else {
+ newEmpSelectedCats.add(cid);
+ }
+ renderEmployees();
+ });
+ newCatsBox.append(b);
+ });
+
  $('#empCountLbl').textContent = employees.length
  ? employees.length + (employees.length === 1 ? ' dipendente salvato' : ' dipendenti salvati')
  : 'Nessun dipendente salvato (clicca Gestisci)';
+
  const list = $('#empList');
  list.replaceChildren();
  if (!employees.length) {
- list.append(el('span', 'hint', 'Aggiungi i nomi dei dipendenti qui sopra (es. GENNARO C., CELENTANO).'));
+ list.append(el('span', 'hint', 'Aggiungi i dipendenti qui sopra e scegli a quali campi sono assegnati (es. Campo Nord, Campo Sud, Parchi).'));
  return;
  }
+
  employees.forEach((emp) => {
- const chip = el('span', 'emp-chip', emp);
- const del = el('button', '', '✕');
- del.type = 'button';
- del.title = 'Rimuovi ' + emp;
- del.addEventListener('click', () => {
- employees = employees.filter((x) => x !== emp);
- persist();
+ const row = el('div', 'emp-row');
+ row.append(el('span', 'emp-name', emp.name));
+
+ const tagsBox = el('div', 'emp-row-cats');
+ cats.forEach((cid) => {
+ const isAssigned = emp.cats.includes(cid);
+ const tag = el('button', 'emp-cat-tag' + (isAssigned ? ' on' : ''), (isAssigned ? '✓ ' : '') + cid);
+ tag.type = 'button';
+ tag.title = isAssigned ? 'Rimuovi ' + emp.name + ' da ' + cid : 'Assegna ' + emp.name + ' a ' + cid;
+ tag.addEventListener('click', () => {
+ if (isAssigned) {
+ if (emp.cats.length <= 1) return toast('Il dipendente deve avere almeno un campo assegnato');
+ emp.cats = emp.cats.filter((c) => c !== cid);
+ } else {
+ emp.cats.push(cid);
+ }
+ markDirty();
  renderEmployees();
  });
- chip.append(del);
- list.append(chip);
+ tagsBox.append(tag);
+ });
+
+ const del = el('button', 'emp-del', '✕');
+ del.type = 'button';
+ del.title = 'Elimina ' + emp.name;
+ del.addEventListener('click', () => {
+ if (!confirm('Rimuovere ' + emp.name + ' dalla lista dipendenti?')) return;
+ employees = employees.filter((x) => x.name !== emp.name);
+ markDirty();
+ renderEmployees();
+ });
+
+ row.append(tagsBox, del);
+ list.append(row);
  });
 }
 
@@ -588,13 +782,18 @@ $('#empForm').addEventListener('submit', (e) => {
  const inp = $('#empInput');
  const val = String(inp.value || '').trim().toUpperCase().replace(/\s+/g, ' ');
  if (!val) return;
- if (!employees.includes(val)) {
- employees.push(val);
- employees.sort((a, b) => a.localeCompare(b, 'it'));
- persist();
- renderEmployees();
- toast('Aggiunto ' + val);
+ const chosenCats = [...newEmpSelectedCats];
+ const existing = employees.find((x) => x.name === val);
+ if (existing) {
+ existing.cats = [...new Set([...existing.cats, ...chosenCats])];
+ toast('Aggiornati i campi di ' + val);
+ } else {
+ employees.push({ name: val, cats: chosenCats.length ? chosenCats : [activeCat] });
+ employees.sort((a, b) => a.name.localeCompare(b.name, 'it'));
+ toast('Aggiunto ' + val + ' (' + chosenCats.join(', ') + ')');
  }
+ markDirty();
+ renderEmployees();
  inp.value = '';
  inp.focus();
 });
@@ -605,7 +804,7 @@ $('#empBtn').addEventListener('click', () => {
  $('#empBtn').setAttribute('aria-expanded', String(!b.hidden));
 });
 
-/* ---------- Selettore Rapido Dipendente (Bottom Sheet al click sulla casella) ---------- */
+/* ---------- Selettore Rapido Dipendente (filtrato per la Categoria del foglio attivo) ---------- */
 function operatorsWorkingOnDay(isoDate) {
  const busy = new Map();
  state.sheets.filter((s) => s.month === month).forEach((s) => {
@@ -645,7 +844,7 @@ function formatCellValue(name, startHour, endHour) {
  return parts.join(' ');
 }
 
-function openCellPicker(sheet, key, colIdx, isExtra, triggerBtn) {
+function openCellPicker(sheet, key, colIdx, isExtra, triggerBtn, showAllCats = false) {
  const cols = isExtra ? sheet.extraCols : sheet.cols;
  const cellMap = isExtra ? sheet.extraCells : sheet.cells;
  const col = cols[colIdx];
@@ -653,10 +852,11 @@ function openCellPicker(sheet, key, colIdx, isExtra, triggerBtn) {
  const parsed = parseCellValue(curRaw);
  const [y, mo, d] = key.split('-').map(Number);
  const dow = new Date(y, mo - 1, d).getDay();
+ const sheetCat = sheet.category || categoryOfTitle(sheet.title);
 
  activePicker = { sheet, key, colIdx, isExtra, triggerBtn, parsed };
  $('#pkTitle').textContent = GG[dow] + ' ' + d + ' ' + MESI[mo - 1] + ' · ' + col.start + '–' + col.end;
- $('#pkSub').textContent = sheet.title + (col.label ? ' · ' + col.label : '');
+ $('#pkSub').textContent = sheet.title + ' (' + sheetCat + ')' + (col.label ? ' · ' + col.label : '');
 
  const body = $('#pkBody');
  body.replaceChildren();
@@ -666,9 +866,12 @@ function openCellPicker(sheet, key, colIdx, isExtra, triggerBtn) {
  while (arr.length < cols.length) arr.push('');
  arr[colIdx] = String(newVal || '').trim().toUpperCase();
  const pure = extractPureName(arr[colIdx]);
- if (pure && pure.length >= 2 && !employees.includes(pure)) {
- employees.push(pure);
- employees.sort((a, b) => a.localeCompare(b, 'it'));
+ if (pure && pure.length >= 2) {
+ let emp = employees.find((x) => x.name === pure);
+ if (!emp) {
+ employees.push({ name: pure, cats: [sheetCat] });
+ employees.sort((a, b) => a.name.localeCompare(b.name, 'it'));
+ }
  renderEmployees();
  }
  markDirty();
@@ -702,29 +905,50 @@ function openCellPicker(sheet, key, colIdx, isExtra, triggerBtn) {
  const hEnd = mkHr('Fine / Prolungamento (opz.)', 'Es. 18', parsed.endHour);
  hrsBox.append(hStart.w, hEnd.w);
 
- body.append(el('p', 'q', 'Tocca un dipendente per assegnarlo'));
+ // Filtra i dipendenti: mostra solo quelli assegnati alla categoria del foglio attivo (es. PARCHI o CAMPO NORD)
+ const assignedEmps = employees.filter((e) => e.cats.includes(sheetCat));
+ const otherEmps = employees.filter((e) => !e.cats.includes(sheetCat));
+ const visibleEmps = showAllCats ? employees : assignedEmps;
+
+ body.append(el('p', 'q', showAllCats ? 'Tutti i dipendenti (' + employees.length + ')' : 'Dipendenti assegnati a ' + sheetCat + ' (' + assignedEmps.length + ')'));
  const busyMap = operatorsWorkingOnDay(key);
  const grid = el('div', 'pk-grid');
 
- employees.forEach((emp) => {
+ visibleEmps.forEach((empObj) => {
+ const emp = empObj.name;
  const isCur = parsed.name === emp;
  const busyWhere = busyMap.get(emp);
  const btn = el('button', 'pk-emp' + (isCur ? ' active' : (busyWhere ? ' busy' : '')));
  btn.type = 'button';
  btn.append(el('b', '', emp));
- btn.append(el('span', '', isCur ? 'Selezionato ✓' : (busyWhere ? 'Già in: ' + busyWhere : 'Disponibile')));
+ btn.append(el('span', '', isCur ? 'Selezionato ✓' : (busyWhere ? 'Già in: ' + busyWhere : 'Disponibile · ' + empObj.cats.join(', '))));
  btn.addEventListener('click', () => {
  setCellValue(formatCellValue(emp, hStart.inp.value, hEnd.inp.value));
  });
  grid.append(btn);
  });
 
+ // Pulsante "NO" (nessun servizio)
  const noBtn = el('button', 'pk-emp' + (curRaw === 'NO' ? ' active' : ''));
  noBtn.type = 'button';
  noBtn.append(el('b', '', 'NO'), el('span', '', 'Turno scoperto / non attivo'));
  noBtn.addEventListener('click', () => setCellValue('NO'));
  grid.append(noBtn);
  body.append(grid);
+
+ if (!assignedEmps.length && !showAllCats) {
+ body.append(el('p', 'none', 'Nessun dipendente assegnato a "' + sheetCat + '". Puoi abilitarli nella sezione "Lista dipendenti e campi" oppure mostrare quelli di altri settori qui sotto.'));
+ }
+
+ // Pulsante opzionale per mostrare anche dipendenti di altri campi (in caso di prestito tra settori)
+ if (otherEmps.length > 0) {
+ const toggleOther = el('button', 'linkbtn', showAllCats
+ ? '▲ Mostra solo dipendenti di ' + sheetCat
+ : '▼ Mostra anche dipendenti di altri campi (' + otherEmps.length + ' nascosti)');
+ toggleOther.type = 'button';
+ toggleOther.addEventListener('click', () => openCellPicker(sheet, key, colIdx, isExtra, triggerBtn, !showAllCats));
+ body.append(toggleOther);
+ }
 
  body.append(el('p', 'q', 'Orario ridotto o prolungato (facoltativo)'));
  body.append(hrsBox);
@@ -737,7 +961,7 @@ function openCellPicker(sheet, key, colIdx, isExtra, triggerBtn) {
  body.append(applyHrs);
  }
 
- body.append(el('p', 'q', 'Oppure scrivi un nome manualmente'));
+ body.append(el('p', 'q', 'Oppure scrivi un nome manualmente (verrà assegnato a ' + sheetCat + ')'));
  const manualForm = el('form', 'row');
  const manualInp = el('input');
  manualInp.type = 'text';
@@ -857,11 +1081,17 @@ function renderColsEditor(s, isExtra) {
  acts.append(add);
 
  if (!isExtra) {
- const del = el('button', 'linkbtn', 'Svuota / Reimposta ' + s.title + ' (' + MESI[+month.slice(5) - 1] + ')');
+ const isCustom = (state.customStructures || []).some((cs) => canonicalSheetTitle(cs.title) === s.title);
+ const del = el('button', 'linkbtn', isCustom
+ ? 'Elimina struttura ' + s.title + ' (' + MESI[+month.slice(5) - 1] + ')'
+ : 'Svuota turni di ' + s.title + ' (' + MESI[+month.slice(5) - 1] + ')');
  del.type = 'button';
  del.addEventListener('click', () => {
- if (!confirm('Svuotare tutti i turni del foglio ' + s.title + ' di ' + MESI[+month.slice(5) - 1] + '?')) return;
+ if (!confirm('Svuotare tutti i turni di ' + s.title + ' nel mese di ' + MESI[+month.slice(5) - 1] + '?')) return;
  state.sheets = state.sheets.filter((x) => x !== s);
+ if (isCustom && !state.sheets.some((x) => canonicalSheetTitle(x.title) === s.title)) {
+ state.customStructures = (state.customStructures || []).filter((cs) => canonicalSheetTitle(cs.title) !== s.title);
+ }
  markDirty();
  render();
  });
@@ -919,7 +1149,7 @@ function buildTableDOM(tableEl, s, isExtra) {
  el('span', 'c-txt', val || '+ Assegna'),
  el('span', 'c-arr', '▾')
  );
- btn.addEventListener('click', () => openCellPicker(s, key, i, isExtra, btn));
+ btn.addEventListener('click', () => openCellPicker(s, key, i, isExtra, btn, false));
  c.append(btn);
  tr.append(c);
  });
@@ -930,8 +1160,9 @@ function buildTableDOM(tableEl, s, isExtra) {
 
 function renderAllGrids(s) {
  const [y, mo] = month.split('-').map(Number);
+ const sCat = s.category || categoryOfTitle(s.title);
  $('#mainTableTitle').textContent = s.title + ' · Turni Ordinari';
- $('#mainTableSub').textContent = MESI[mo - 1] + ' ' + y + ' · ' + daysIn(month) + ' giorni';
+ $('#mainTableSub').textContent = sCat + ' · ' + MESI[mo - 1] + ' ' + y;
  buildTableDOM($('#grid'), s, false);
 
  const hasExtra = s.extraCols && s.extraCols.length > 0;
@@ -989,7 +1220,7 @@ async function start() {
  show(true);
  if (!state) {
  try { await loadRemote(); }
- catch { state = { sheets: [], dirty: false }; toast('Server non raggiungibile'); }
+ catch { state = { sheets: [], customStructures: [], dirty: false }; toast('Server non raggiungibile'); }
  } else {
  syncEmployeesFromSheets();
  }
