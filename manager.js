@@ -18,6 +18,36 @@ const EXTRA_PRESETS = [
  { start: '22:00', end: '06:00', label: 'Turno Extra Notte' },
 ];
 
+// Struttura gerarchica delle categorie principali e relativi sotto-fogli
+// Nota: `exportTitle` mantiene il formato atteso da `classifyText` nell'app dei turnisti (es. TERRA DEL SOLE per Gabbiotto)
+const CATEGORY_TREE = [
+ {
+ id: 'CAMPO SUD',
+ label: 'CAMPO SUD',
+ items: [
+ { title: 'CAMPO SUD GABBIOTTO', label: 'CAMPO SUD GABBIOTTO', exportTitle: 'CAMPO SUD TERRA DEL SOLE' },
+ { title: 'CAMPO SUD RONDA', label: 'CAMPO SUD RONDA', exportTitle: 'CAMPO SUD RONDA' },
+ { title: 'CAMPO SUD ROM', label: 'CAMPO SUD ROM', exportTitle: 'CAMPO SUD ROM' },
+ ],
+ },
+ {
+ id: 'CAMPO NORD',
+ label: 'CAMPO NORD',
+ items: [
+ { title: 'CAMPO NORD GABBIOTTO', label: 'CAMPO NORD GABBIOTTO', exportTitle: 'CAMPO NORD TERRA DEL SOLE' },
+ { title: 'CAMPO NORD RONDA LATO SUD', label: 'CAMPO NORD RONDA LATO SUD', exportTitle: 'CAMPO NORD RONDA LATO SUD' },
+ { title: 'CAMPO NORD RONDA LATO NORD', label: 'CAMPO NORD RONDA LATO NORD', exportTitle: 'CAMPO NORD RONDA LATO NORD' },
+ ],
+ },
+ {
+ id: 'PARCO CAFASSO',
+ label: 'PARCO CAFASSO',
+ items: [
+ { title: 'PARCO CAFASSO', label: 'PARCO CAFASSO', exportTitle: 'PARCO CAFASSO' },
+ ],
+ },
+];
+
 const $ = (s) => document.querySelector(s);
 const el = (t, c, x) => {
  const e = document.createElement(t);
@@ -29,30 +59,55 @@ const pad = (n) => String(n).padStart(2, '0');
 const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* ignore */ } };
 
-// Carica stato (con migrazione automatica da v1 e separazione rigorosa per mese)
+// Normalizza i titoli (e converte automaticamente "TERRA DEL SOLE" in "GABBIOTTO" nell'interfaccia del responsabile)
+function canonicalSheetTitle(raw) {
+ const t = String(raw || '').trim().toUpperCase().replace(/[_.]+/g, ' ').replace(/\s+/g, ' ');
+ if (!t) return '';
+ if (/\bCAMPO\s+SUD\s+ROM\b/.test(t)) return 'CAMPO SUD ROM';
+ if (/\bCAFASSO\b/.test(t)) return 'PARCO CAFASSO';
+ const isNord = /\bCAMPO\s+NORD\b/.test(t) || (/\bNORD\b/.test(t.replace(/\bLATO\s+NORD\b/g, '')) && !/\bCAMPO\s+SUD\b/.test(t));
+ const isSud = /\bCAMPO\s+SUD\b/.test(t) || (!isNord && /\bSUD\b/.test(t.replace(/\bLATO\s+SUD\b/g, '')));
+ const isGab = /\bGABBIOTTO\b/.test(t) || /\bTERR[AE]\s+DEL\s+SOLE\b/.test(t);
+ const isRonda = /\bROND[AE]\b/.test(t);
+ const lato = /\bLATO\s+(NORD|SUD)\b/.exec(t);
+
+ if (isSud && isGab) return 'CAMPO SUD GABBIOTTO';
+ if (isSud && isRonda) return 'CAMPO SUD RONDA';
+ if (isNord && isGab) return 'CAMPO NORD GABBIOTTO';
+ if (isNord && isRonda && lato) return 'CAMPO NORD RONDA LATO ' + lato[1];
+ if (isNord && isRonda) return 'CAMPO NORD RONDA LATO NORD';
+ return t;
+}
+
+// Per la pubblicazione: garantisce che l'app dei turnisti riconosca "Gabbiotto" (tramite TERRA DEL SOLE)
+function exportTitleForClients(canonTitle) {
+ for (const cat of CATEGORY_TREE) {
+ const found = cat.items.find((it) => it.title === canonTitle);
+ if (found) return found.exportTitle;
+ }
+ return canonTitle;
+}
+
 let state = lsGet(LS_STATE, null) || migrateState(lsGet(LS_LEGACY_STATE, null));
 let employees = lsGet(LS_EMP, []);
 let pw = lsGet(LS_PW, '');
 const nowInit = new Date();
 let month = nowInit.getFullYear() + '-' + pad(nowInit.getMonth() + 1);
-let title = '';
+let title = 'CAMPO SUD GABBIOTTO';
+let activeCat = 'CAMPO SUD';
 let saveTimer = 0, toastTimer = 0, scrollTimer = 0, firstRender = true;
 let activePicker = null;
 
 const ui = lsGet(LS_UI, {});
 if (/^\d{4}-\d{2}$/.test(ui.month || '')) month = ui.month;
-if (typeof ui.title === 'string') title = ui.title;
-
-function normTitle(t) {
- return String(t || '').trim().toUpperCase().replace(/\s+/g, ' ');
-}
+if (typeof ui.title === 'string' && ui.title) title = canonicalSheetTitle(ui.title);
 
 // Garantisce che ogni foglio contenga SOLO le date del proprio mese YYYY-MM
 function migrateState(raw) {
  if (!raw || !Array.isArray(raw.sheets)) return null;
  const byKey = new Map();
  raw.sheets.forEach((s) => {
- const t = normTitle(s.title);
+ const t = canonicalSheetTitle(s.title);
  const m = /^\d{4}-\d{2}$/.test(s.month || '') ? s.month : month;
  if (!t) return;
  const key = t + '|' + m;
@@ -91,21 +146,67 @@ function markDirty() {
  saveTimer = setTimeout(persist, 300);
  renderBar();
  renderMonthStats();
+ renderCategoryNav();
 }
 
-function titles() {
- return [...new Set(state.sheets.map((s) => normTitle(s.title)).filter(Boolean))];
+// Restituisce l'albero completo delle categorie (quelle predefinite + eventuali fogli extra creati dal responsabile)
+function getCategories() {
+ const cats = CATEGORY_TREE.map((c) => ({ id: c.id, label: c.label, items: c.items.map((x) => ({ ...x })) }));
+ const knownTitles = new Set();
+ cats.forEach((c) => c.items.forEach((it) => knownTitles.add(it.title)));
+
+ (state && state.sheets ? state.sheets : []).forEach((s) => {
+ const t = canonicalSheetTitle(s.title);
+ if (!t || knownTitles.has(t)) return;
+ knownTitles.add(t);
+ if (t.startsWith('CAMPO SUD ')) {
+ cats[0].items.push({ title: t, label: t, exportTitle: t });
+ } else if (t.startsWith('CAMPO NORD ')) {
+ cats[1].items.push({ title: t, label: t, exportTitle: t });
+ } else {
+ let customCat = cats.find((c) => c.id === t);
+ if (!customCat) {
+ customCat = { id: t, label: t, items: [{ title: t, label: t, exportTitle: t }] };
+ cats.push(customCat);
+ }
+ }
+ });
+ return cats;
 }
+
+function categoryOfTitle(t) {
+ const ct = canonicalSheetTitle(t);
+ const cats = getCategories();
+ for (const c of cats) {
+ if (c.items.some((it) => it.title === ct)) return c.id;
+ }
+ return cats[0].id;
+}
+
+function allAvailableTitles() {
+ const out = [];
+ getCategories().forEach((c) => c.items.forEach((it) => out.push(it.title)));
+ return out;
+}
+
 function daysIn(m) {
  const [y, mo] = m.split('-').map(Number);
  return new Date(y, mo, 0).getDate();
 }
 const isoDay = (m, d) => m + '-' + pad(d);
 
+// Verifica se un foglio ha almeno un turno compilato nel mese specificato
+function sheetHasData(t, m) {
+ const s = sheetFor(t, m, false);
+ if (!s) return false;
+ const checkMap = (map) => Object.entries(map || {}).some(([date, arr]) => date.slice(0, 7) === m && (arr || []).some((v) => extractPureName(v)));
+ return checkMap(s.cells) || checkMap(s.extraCells);
+}
+
 // Restituisce il foglio per (title, month) senza mai mischiare i mesi tra loro
 function sheetFor(t, m, create) {
- const nt = normTitle(t);
- let s = state.sheets.find((x) => normTitle(x.title) === nt && x.month === m);
+ const nt = canonicalSheetTitle(t);
+ let s = state.sheets.find((x) => canonicalSheetTitle(x.title) === nt && x.month === m);
  if (s) {
  s.title = nt;
  if (!Array.isArray(s.extraCols)) s.extraCols = [];
@@ -113,9 +214,8 @@ function sheetFor(t, m, create) {
  return s;
  }
  if (!create) return null;
- // Copia solo la struttura oraria delle colonne dal mese precedente più vicino dello stesso foglio
  const sameTitle = state.sheets
- .filter((x) => normTitle(x.title) === nt)
+ .filter((x) => canonicalSheetTitle(x.title) === nt)
  .sort((a, b) => b.month.localeCompare(a.month));
  const ref = sameTitle[0];
  const cols = (ref && ref.cols && ref.cols.length ? ref.cols : DEFAULT_COLS).map((c) => ({ start: c.start, end: c.end, label: c.label || '' }));
@@ -125,7 +225,6 @@ function sheetFor(t, m, create) {
  return s;
 }
 
-// Classifica una colonna per colore (Mattina, Pomeriggio, Notte, Continuativo/Extra)
 function colTheme(col, isExtraTable) {
  if (isExtraTable || /extra|continuat/i.test(col.label || '')) return 'col-c';
  const [sh, sm] = (col.start || '00:00').split(':').map(Number);
@@ -150,7 +249,6 @@ function isExtraOrContCol(col) {
  return (eMin - sMin) / 60 >= 10;
 }
 
-// Estrae il nome pulito da una cella (rimuovendo eventuali numeri d'orario come "18 ROSSI M." o "ROSSI M. 18")
 function extractPureName(raw) {
  const toks = String(raw || '').trim().toUpperCase().split(/\s+/).filter(Boolean);
  const clean = toks.filter((t) => !/^\d{1,2}(?:[:.]\d{2})?$/.test(t));
@@ -159,7 +257,6 @@ function extractPureName(raw) {
  return joined;
 }
 
-// Sincronizza in automatico nella lista dipendenti eventuali nomi già scritti nelle tabelle
 function syncEmployeesFromSheets() {
  const set = new Set(employees.map((e) => e.toUpperCase()));
  let changed = false;
@@ -183,14 +280,13 @@ function syncEmployeesFromSheets() {
  if (changed) lsSet(LS_EMP, employees);
 }
 
-/* ---------- Pubblicazione: unisce colonne standard + continuative nel formato letto dall'app turnisti ---------- */
+/* ---------- Pubblicazione: formato compatibile con l'app dei turnisti ---------- */
 function toDocs() {
  const keep = new Date();
  keep.setDate(1);
  keep.setMonth(keep.getMonth() - 3);
  const minM = keep.getFullYear() + '-' + pad(keep.getMonth() + 1);
 
- // Raggruppa rigorosamente per (title, month) così due mesi diversi non si sovrascrivono mai
  const validSheets = state.sheets.filter((s) => s.month >= minM);
  return validSheets.map((s) => {
  const [y, mo] = s.month.split('-').map(Number);
@@ -210,9 +306,11 @@ function toDocs() {
  .concat(extCols.map((_, i) => String(cExt[i] || '').trim().replace(/\s+/g, ' ')));
  rows.push({ date: key, cells: rowCells });
  }
+ const pubTitle = exportTitleForClients(s.title);
  return {
  id: s.title + ' ' + MES3[mo - 1] + '-' + String(y).slice(2),
- title: s.title,
+ title: pubTitle,
+ uiTitle: s.title,
  month: s.month,
  cols: allCols,
  stdCount: stdCols.length,
@@ -221,13 +319,11 @@ function toDocs() {
  }).filter((d) => d.rows.some((r) => r.cells.some((x) => x)));
 }
 
-// Ricostruisce i fogli separando rigorosamente ogni documento per mese YYYY-MM
 function fromDocs(docs) {
  const map = new Map();
  (docs || []).forEach((d) => {
- const t = normTitle(d.title);
+ const t = canonicalSheetTitle(d.uiTitle || d.title || d.id);
  if (!t || !Array.isArray(d.rows)) return;
- // Raggruppa le righe del documento per mese effettivo (YYYY-MM) così mesi diversi non confliggono mai
  const rowsByMonth = {};
  d.rows.forEach((r) => {
  if (!r || !/^\d{4}-\d{2}-\d{2}$/.test(r.date || '')) return;
@@ -269,7 +365,7 @@ async function loadRemote() {
  if (!r.ok) throw new Error('server ' + r.status);
  const d = await r.json();
  if (Array.isArray(d.employees) && d.employees.length) {
- const merged = new Set([...employees, ...d.employees.map((x) => normTitle(x)).filter(Boolean)]);
+ const merged = new Set([...employees, ...d.employees.map((x) => String(x || '').trim().toUpperCase()).filter(Boolean)]);
  employees = [...merged].sort((a, b) => a.localeCompare(b, 'it'));
  }
  state = { sheets: fromDocs(d.docs || []), dirty: false };
@@ -330,7 +426,7 @@ async function publish() {
  renderBar();
 }
 
-/* ---------- Riepilogo del mese selezionato (isolato dal mese corrente) ---------- */
+/* ---------- Riepilogo del mese selezionato ---------- */
 function renderMonthStats() {
  const [y, mo] = month.split('-').map(Number);
  const now = new Date();
@@ -349,7 +445,6 @@ function renderMonthStats() {
  badge.textContent = 'Mese in corso · ' + MESI[mo - 1] + ' ' + y;
  }
 
- // Calcola statistiche SOLO sui fogli del mese attualmente selezionato (`month`)
  const monthSheets = state.sheets.filter((s) => s.month === month);
  let totalAssigned = 0;
  let activeSheets = 0;
@@ -373,6 +468,7 @@ function renderMonthStats() {
  if (sheetHasShifts) activeSheets++;
  });
 
+ const totalPossible = allAvailableTitles().length;
  const box = $('#mStats');
  const mk = (v, l) => {
  const d = el('div', 'mstat');
@@ -380,10 +476,85 @@ function renderMonthStats() {
  return d;
  };
  box.replaceChildren(
- mk(activeSheets + ' / ' + titles().length, 'Fogli compilati in ' + MES3[mo - 1]),
+ mk(activeSheets + ' / ' + totalPossible, 'Fogli compilati in ' + MES3[mo - 1]),
  mk(totalAssigned, 'Turni assegnati in ' + MES3[mo - 1]),
  mk(uniqueOps.size, 'Operatori in ' + MES3[mo - 1])
  );
+}
+
+/* ---------- Navigazione a 2 Livelli: Categorie (CAMPO SUD / CAMPO NORD) -> Sotto-fogli ---------- */
+function renderCategoryNav() {
+ const cats = getCategories();
+ activeCat = categoryOfTitle(title);
+ const curCatObj = cats.find((c) => c.id === activeCat) || cats[0];
+
+ // Livello 1: Macro-categorie (CAMPO SUD, CAMPO NORD, PARCO CAFASSO, ecc.)
+ const catBox = $('#catTabs');
+ catBox.replaceChildren();
+ cats.forEach((c) => {
+ const isOn = c.id === curCatObj.id;
+ const hasAnyData = c.items.some((it) => sheetHasData(it.title, month));
+ const b = el('button', 'tab' + (isOn ? ' on' : ''));
+ b.type = 'button';
+ b.setAttribute('role', 'tab');
+ b.setAttribute('aria-selected', String(isOn));
+ b.append(el('span', '', c.label));
+ if (hasAnyData) {
+ const dot = el('i', 'tab-dot');
+ dot.title = 'Contiene turni compilati in questo mese';
+ b.append(dot);
+ }
+ b.addEventListener('click', () => {
+ activeCat = c.id;
+ // Seleziona il primo sotto-foglio della categoria cliccata
+ if (!c.items.some((it) => it.title === title)) {
+ title = c.items[0].title;
+ }
+ render();
+ });
+ catBox.append(b);
+ });
+
+ const addCat = el('button', 'tab add', '+ Altro Foglio');
+ addCat.type = 'button';
+ addCat.addEventListener('click', () => {
+ const raw = prompt('Nome del nuovo foglio (es. CAMPO SUD EXTRA o EVENTO SPECIALE):') || '';
+ const t = canonicalSheetTitle(raw);
+ if (!t) return;
+ title = t;
+ activeCat = categoryOfTitle(t);
+ sheetFor(t, month, true);
+ markDirty();
+ render();
+ });
+ catBox.append(addCat);
+
+ // Livello 2: Sotto-fogli della categoria attiva (es. GABBIOTTO, RONDA, ROM / LATO SUD, LATO NORD)
+ const subBlock = $('#subNavBlock');
+ const subBox = $('#subTabs');
+ subBox.replaceChildren();
+
+ $('#subNavLabel').textContent = '2. Fogli di ' + curCatObj.label + ':';
+ curCatObj.items.forEach((it) => {
+ const isOn = it.title === title;
+ const hasData = sheetHasData(it.title, month);
+ const b = el('button', 'tab' + (isOn ? ' on' : ''));
+ b.type = 'button';
+ b.setAttribute('role', 'tab');
+ b.setAttribute('aria-selected', String(isOn));
+ b.append(el('span', '', it.label));
+ if (hasData) {
+ const dot = el('i', 'tab-dot');
+ dot.title = 'Turni presenti';
+ b.append(dot);
+ }
+ b.addEventListener('click', () => {
+ title = it.title;
+ render();
+ });
+ subBox.append(b);
+ });
+ subBlock.hidden = false;
 }
 
 /* ---------- Gestione Lista Dipendenti ---------- */
@@ -415,7 +586,7 @@ function renderEmployees() {
 $('#empForm').addEventListener('submit', (e) => {
  e.preventDefault();
  const inp = $('#empInput');
- const val = normTitle(inp.value);
+ const val = String(inp.value || '').trim().toUpperCase().replace(/\s+/g, ' ');
  if (!val) return;
  if (!employees.includes(val)) {
  employees.push(val);
@@ -465,7 +636,7 @@ function parseCellValue(raw) {
 }
 
 function formatCellValue(name, startHour, endHour) {
- const n = normTitle(name);
+ const n = String(name || '').trim().toUpperCase().replace(/\s+/g, ' ');
  if (!n) return '';
  const parts = [];
  if (startHour && startHour.trim()) parts.push(startHour.trim());
@@ -494,9 +665,9 @@ function openCellPicker(sheet, key, colIdx, isExtra, triggerBtn) {
  const arr = cellMap[key] || (cellMap[key] = []);
  while (arr.length < cols.length) arr.push('');
  arr[colIdx] = String(newVal || '').trim().toUpperCase();
- const Pure = extractPureName(arr[colIdx]);
- if (Pure && Pure.length >= 2 && !employees.includes(Pure)) {
- employees.push(Pure);
+ const pure = extractPureName(arr[colIdx]);
+ if (pure && pure.length >= 2 && !employees.includes(pure)) {
+ employees.push(pure);
  employees.sort((a, b) => a.localeCompare(b, 'it'));
  renderEmployees();
  }
@@ -505,7 +676,6 @@ function openCellPicker(sheet, key, colIdx, isExtra, triggerBtn) {
  closeCellPicker();
  };
 
- // Stato attuale e pulsante Svuota
  if (curRaw) {
  const curBox = el('div', 'pk-current');
  const left = el('div');
@@ -517,7 +687,6 @@ function openCellPicker(sheet, key, colIdx, isExtra, triggerBtn) {
  body.append(curBox);
  }
 
- // Opzioni di orario anticipato/posticipato (es. 18 ROSSI M. o ROSSI M. 18)
  const hrsBox = el('div', 'pk-hours');
  const mkHr = (lbl, ph, initVal) => {
  const w = el('div');
@@ -533,7 +702,6 @@ function openCellPicker(sheet, key, colIdx, isExtra, triggerBtn) {
  const hEnd = mkHr('Fine / Prolungamento (opz.)', 'Es. 18', parsed.endHour);
  hrsBox.append(hStart.w, hEnd.w);
 
- // Griglia dipendenti salvati
  body.append(el('p', 'q', 'Tocca un dipendente per assegnarlo'));
  const busyMap = operatorsWorkingOnDay(key);
  const grid = el('div', 'pk-grid');
@@ -551,7 +719,6 @@ function openCellPicker(sheet, key, colIdx, isExtra, triggerBtn) {
  grid.append(btn);
  });
 
- // Pulsante "NO" (nessun servizio)
  const noBtn = el('button', 'pk-emp' + (curRaw === 'NO' ? ' active' : ''));
  noBtn.type = 'button';
  noBtn.append(el('b', '', 'NO'), el('span', '', 'Turno scoperto / non attivo'));
@@ -559,7 +726,6 @@ function openCellPicker(sheet, key, colIdx, isExtra, triggerBtn) {
  grid.append(noBtn);
  body.append(grid);
 
- // Variazione orario sul nome già selezionato
  body.append(el('p', 'q', 'Orario ridotto o prolungato (facoltativo)'));
  body.append(hrsBox);
  if (parsed.name && parsed.name !== 'NO') {
@@ -571,7 +737,6 @@ function openCellPicker(sheet, key, colIdx, isExtra, triggerBtn) {
  body.append(applyHrs);
  }
 
- // Inserimento manuale nuovo dipendente al volo
  body.append(el('p', 'q', 'Oppure scrivi un nome manualmente'));
  const manualForm = el('form', 'row');
  const manualInp = el('input');
@@ -618,29 +783,6 @@ function renderBar() {
  st.textContent = 'Pubblicato il ' + d.getDate() + ' ' + MES3[d.getMonth()] + ' alle ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
  } else st.textContent = 'Niente di pubblicato';
  $('#pubBtn').disabled = !(state.dirty || pending);
-}
-
-function renderTabs() {
- const box = $('#tabs');
- box.replaceChildren();
- titles().forEach((t) => {
- const b = el('button', 'tab' + (t === title ? ' on' : ''), t);
- b.type = 'button';
- b.setAttribute('role', 'tab');
- b.addEventListener('click', () => { title = t; render(); });
- box.append(b);
- });
- const add = el('button', 'tab add', '+ Nuovo Foglio');
- add.type = 'button';
- add.addEventListener('click', () => {
- const t = normTitle(prompt('Nome del foglio (es. CAMPO NORD RONDA):') || '');
- if (!t) return;
- title = t;
- sheetFor(t, month, true);
- markDirty();
- render();
- });
- box.append(add);
 }
 
 function renderColsEditor(s, isExtra) {
@@ -715,10 +857,10 @@ function renderColsEditor(s, isExtra) {
  acts.append(add);
 
  if (!isExtra) {
- const del = el('button', 'linkbtn', 'Elimina foglio ' + s.title + ' (' + MESI[+month.slice(5) - 1] + ')');
+ const del = el('button', 'linkbtn', 'Svuota / Reimposta ' + s.title + ' (' + MESI[+month.slice(5) - 1] + ')');
  del.type = 'button';
  del.addEventListener('click', () => {
- if (!confirm('Eliminare il foglio ' + s.title + ' di ' + MESI[+month.slice(5) - 1] + '?')) return;
+ if (!confirm('Svuotare tutti i turni del foglio ' + s.title + ' di ' + MESI[+month.slice(5) - 1] + '?')) return;
  state.sheets = state.sheets.filter((x) => x !== s);
  markDirty();
  render();
@@ -799,19 +941,14 @@ function renderAllGrids(s) {
 }
 
 function render() {
- const names = titles();
- if (!names.length) {
- title = 'CAMPO SUD ROM';
- sheetFor(title, month, true);
- } else if (!names.includes(title)) {
- title = names[0];
- }
+ const validTitles = allAvailableTitles();
+ if (!validTitles.includes(title)) title = validTitles[0];
  const [y, mo] = month.split('-').map(Number);
  $('#monthLbl').textContent = MESI[mo - 1] + ' ' + y;
  const s = sheetFor(title, month, true);
 
  renderMonthStats();
- renderTabs();
+ renderCategoryNav();
  renderEmployees();
  renderColsEditor(s, false);
  renderColsEditor(s, true);

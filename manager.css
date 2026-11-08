@@ -1,4 +1,4 @@
-/* Stili potenziati per l'app del responsabile: tabelle più grandi, colori per turno e selettore dipendenti */
+/* Stili potenziati per l'app del responsabile: categorie a 2 livelli, tabelle più grandi, colori e selettore dipendenti */
 :root {
  --m-bg: #fff9db; --m-bd: #f5d97e; --m-tx: #664d03;
  --p-bg: #fdecec; --p-bd: #f5bcbc; --p-tx: #842029;
@@ -28,12 +28,37 @@ main { padding-bottom: 120px; }
 .mstat b { font-size: 20px; font-weight: 800; color: var(--ink); line-height: 1.1; }
 .mstat span { font-size: 11px; font-weight: 700; color: var(--mut); text-transform: uppercase; letter-spacing: .05em; }
 
-/* Tabs fogli */
-.tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
-.tab { flex: none; border: 0; background: #fff; box-shadow: 0 0 0 1px var(--line); border-radius: 999px; padding: 10px 18px; font: inherit; font-size: 14px; font-weight: 800; color: var(--mut); cursor: pointer; transition: all .2s var(--ease); }
-.tab:hover { border-color: var(--red); color: var(--ink); }
-.tab.on { background: var(--ink); color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,.15); }
-.tab.add { color: var(--red-d); background: var(--red-t); box-shadow: none; }
+/* Navigazione Categorie e Sotto-fogli a 2 livelli */
+.nav-card { display: grid; gap: 14px; padding: 16px 18px; }
+.nav-block { display: grid; gap: 8px; }
+.sub-block { padding-top: 12px; border-top: 1px dashed var(--line); animation: fadeIn .25s var(--ease); }
+.nav-label { font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--mut); }
+
+.tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; flex-wrap: wrap; }
+.tab {
+ flex: none; display: inline-flex; align-items: center; gap: 8px;
+ border: 1.5px solid var(--line); background: #fff; border-radius: 14px;
+ padding: 11px 18px; font: inherit; font-size: 15px; font-weight: 800;
+ color: var(--ink); cursor: pointer; transition: all .18s var(--ease);
+}
+.tab:hover { border-color: var(--red); transform: translateY(-1px); }
+.tab.on { background: var(--ink); color: #fff; border-color: var(--ink); box-shadow: 0 4px 12px rgba(0,0,0,.14); }
+.tab.add { color: var(--red-d); background: var(--red-t); border-color: transparent; font-size: 13px; padding: 9px 14px; border-radius: 999px; }
+
+/* Sotto-fogli (secondo livello) */
+.sub-tabs .tab {
+ border-radius: 999px; padding: 9px 16px; font-size: 14px;
+ background: var(--bg); border-color: #d6d2ce; color: var(--mut);
+}
+.sub-tabs .tab:hover { color: var(--ink); border-color: var(--red); background: #fff; }
+.sub-tabs .tab.on {
+ background: var(--red); color: #fff; border-color: var(--red);
+ box-shadow: 0 4px 12px rgba(178, 51, 56, 0.25);
+}
+
+/* Pallino indicatore foglio compilato */
+.tab-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; display: inline-block; flex: none; }
+.tab.on .tab-dot { background: #4ade80; box-shadow: 0 0 0 2px rgba(255,255,255,0.25); }
 
 /* Strumenti: Dipendenti e Colonne */
 .tools-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; align-items: start; }
@@ -117,7 +142,7 @@ main { padding-bottom: 120px; }
 .grid tr.we td.day span { color: var(--red-d); }
 .grid tr.is-today td { background: #fff8eb; }
 .grid tr.is-today td.day { background: var(--red); color: #fff; }
-.grid tr.is-today td.day span { color: #fff; }
+.grid tr.is-today td.day span { color: var(--red-d); color: #fff; }
 
 /* Caselle (Celle) più grandi e colorate quando compilate */
 .cell-btn {
