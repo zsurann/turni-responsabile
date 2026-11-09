@@ -16,7 +16,7 @@ PWA per il responsabile: compila i turni per postazione e mese e li pubblica sul
 
 ## Rilascio: cose da ricordare
 
-1. **Aumenta `CACHE` in `sw.js`** (es. `resp-v9` → `resp-v10`) a ogni modifica, altrimenti le app installate possono restare alla versione vecchia.
+1. **Aumenta `CACHE` in `sw.js`** (es. `resp-v10` → `resp-v11`) a ogni modifica, altrimenti le app installate possono restare alla versione vecchia.
 2. Se cambi l'indirizzo del Worker in `config.js`, aggiornalo anche in `connect-src` dentro `_headers`, altrimenti il browser blocca le chiamate.
 
 ## API del Worker usate dall'app
@@ -44,4 +44,4 @@ PWA per il responsabile: compila i turni per postazione e mese e li pubblica sul
 - **Storico**: a ogni pubblicazione vengono inviati gli ultimi 12 mesi.
 - **Parole riservate** (non diventano dipendenti): `NO`, `RIPOSO`, `FERIE`, `MALATTIA`, `PERMESSO`, `FESTIVO`, `RECUPERO`, `LIBERO`, `ASSENTE`, `SCOPERTO`, `CHIUSO`, `ROL`, `CONGEDO`, `INFORTUNIO`.
 - **Accesso**: la password resta valida solo finché l'app è aperta (sopravvive al ricaricamento della pagina); chiudendo e riaprendo l'app viene richiesta di nuovo. La bozza dei turni resta salvata sul dispositivo.
-- **Interfaccia**: su computer barra laterale con le postazioni, tabella e pannello di assegnazione a destra; su telefono vista per giorno, scelta della postazione in alto e pubblicazione in basso.
+- **Interfaccia**: su computer barra laterale con le categorie a fisarmonica (una aperta alla volta, ognuna col suo colore), tabella e pannello di assegnazione a destra; su telefono vista per giorno, scelta della postazione in alto e pubblicazione in basso.
