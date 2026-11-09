@@ -276,6 +276,7 @@ function markDirty() {
  renderMonthStats();
  renderCategoryNav();
  renderSummary();
+ scheduleDraftSave();
 }
 
 // Istantanea per "Annulla" dopo un'eliminazione
@@ -289,6 +290,7 @@ function restoreSnapshot(snap) {
  invalidate();
  persist();
  render();
+ scheduleDraftSave();
  toast('Eliminazione annullata');
 }
 const undoAction = (snap) => ({ label: 'Annulla', fn: () => restoreSnapshot(snap) });
@@ -772,6 +774,7 @@ async function publish() {
  remoteNewer = false;
  lsSet(LS_PUB, { version: d.version, months: monthSigs(docs) });
  persist();
+ syncDraftNow();
  }
  if (state.noticePending) {
  try {
@@ -786,6 +789,178 @@ async function publish() {
  } finally {
  renderBar();
  }
+}
+
+/* ---------- Bozza condivisa tra i dispositivi del responsabile (computer <-> telefono) ---------- */
+// La bozza non ancora pubblicata viene salvata anche sul Worker (/api/draft, solo con la password):
+// si può continuare dal telefono il lavoro iniziato al computer e viceversa.
+// I turnisti non la vedono finché non si preme "Pubblica turni".
+const LS_DRAFT = 'resp.draft.v1';
+const DRAFT_DEBOUNCE = 4000;   // salva 4 secondi dopo l'ultima modifica...
+const DRAFT_MIN_GAP = 30000;   // ...ma al massimo una volta ogni 30 secondi (scritture KV gratuite: 1000 al giorno)
+const DRAFT_POLL = 30000;      // controlla ogni 30 secondi se l'altro dispositivo ha cambiato qualcosa
+// rev = versione della bozza sul server da cui parte questo dispositivo; pending = modifiche locali non ancora inviate
+let draftInfo = lsGet(LS_DRAFT, null) || { rev: 0, pending: !!(state && state.dirty) };
+let draftSupported = true, draftBusy = false, draftConflict = false;
+let draftTimer = 0, draftSeq = 0, lastDraftPush = 0, lastDraftPull = 0;
+let syncAt = 0;
+const saveDraftInfo = () => lsSet(LS_DRAFT, draftInfo);
+const deviceKind = () => (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? 'telefono' : 'computer');
+const hhmm = (t) => { const d = new Date(t); return pad(d.getHours()) + ':' + pad(d.getMinutes()); };
+
+function setSyncState(s, at) {
+ if (at) syncAt = at;
+ const e = $('#syncState');
+ if (!e) return;
+ const txt = {
+ saving: 'Sincronizzazione…',
+ saved: 'Bozza sincronizzata' + (syncAt ? ' alle ' + hhmm(syncAt) : ''),
+ offline: 'Bozza non sincronizzata: riprovo appena c\'è rete',
+ off: 'Sincronizzazione tra dispositivi non attiva',
+ conflict: 'Scegli quale bozza tenere',
+ }[s] || '';
+ e.textContent = txt;
+ e.className = 'sync-state ' + s;
+ e.hidden = !txt;
+}
+
+// Segna che ci sono modifiche da inviare e programma l'invio
+function scheduleDraftSave(delay = DRAFT_DEBOUNCE) {
+ draftSeq++;
+ draftInfo.pending = true;
+ saveDraftInfo();
+ if (!draftSupported || !pw || draftConflict) return;
+ clearTimeout(draftTimer);
+ draftTimer = setTimeout(pushDraft, Math.max(delay, DRAFT_MIN_GAP - (Date.now() - lastDraftPush)));
+}
+// Invio immediato (dopo una pubblicazione, un ricaricamento o quando l'app va in background)
+function syncDraftNow() {
+ draftSeq++;
+ draftInfo.pending = true;
+ saveDraftInfo();
+ pushDraft();
+}
+
+async function pushDraft() {
+ clearTimeout(draftTimer);
+ draftTimer = 0;
+ if (!draftSupported || !pw || !state || draftConflict || !draftInfo.pending) return;
+ if (draftBusy) { draftTimer = setTimeout(pushDraft, 2000); return; }
+ draftBusy = true;
+ const seq = draftSeq;
+ setSyncState('saving');
+ let conflict = false;
+ try {
+ const body = JSON.stringify({
+ baseRev: draftInfo.rev || 0,
+ device: deviceKind(),
+ state: {
+ sheets: state.sheets,
+ customStructures: state.customStructures || [],
+ deletedCategories: state.deletedCategories || [],
+ deletedTitles: state.deletedTitles || [],
+ dirty: !!state.dirty,
+ },
+ employees,
+ pub: lsGet(LS_PUB, null),
+ });
+ const r = await api('/api/draft', { method: 'PUT', headers: { 'content-type': 'application/json' }, body });
+ lastDraftPush = Date.now();
+ if (r.status === 404) { draftSupported = false; setSyncState('off'); return; } // Worker non ancora aggiornato
+ if (r.status === 401) { logout(true); return; }
+ if (r.status === 409) {
+ conflict = true; // un altro dispositivo ha salvato nel frattempo: si gestisce dopo, fuori dal try
+ } else {
+ if (!r.ok) throw new Error('draft ' + r.status);
+ const d = await r.json();
+ draftInfo = { rev: d.rev, pending: draftSeq !== seq }; // modifiche fatte durante l'invio restano da inviare
+ saveDraftInfo();
+ setSyncState('saved', Date.now());
+ if (draftInfo.pending) draftTimer = setTimeout(pushDraft, DRAFT_MIN_GAP);
+ }
+ } catch {
+ setSyncState('offline');
+ draftTimer = setTimeout(pushDraft, DRAFT_MIN_GAP);
+ } finally {
+ draftBusy = false;
+ }
+ if (conflict) await pullDraft();
+}
+
+async function pullDraft() {
+ if (!draftSupported || !pw || !state || draftConflict || draftBusy) return;
+ lastDraftPull = Date.now();
+ let r;
+ try { r = await api('/api/draft', { cache: 'no-store' }); } catch { return; }
+ if (r.status === 404) { draftSupported = false; setSyncState('off'); return; }
+ if (r.status === 401) { logout(true); return; }
+ if (!r.ok) return;
+ const d = await r.json().catch(() => null);
+ if (!d) return;
+ if (!d.rev) {
+ // Nessuna bozza sul server: invio quella di questo dispositivo
+ syncDraftNow();
+ return;
+ }
+ if (d.rev === draftInfo.rev || d.rev < draftInfo.rev) {
+ // Già allineati (o copia del server non ancora aggiornata: la ignoro)
+ if (!draftInfo.pending) setSyncState('saved', syncAt || d.rev);
+ else if (!draftTimer) draftTimer = setTimeout(pushDraft, DRAFT_DEBOUNCE);
+ return;
+ }
+ if (draftInfo.pending) { openDraftConflict(d); return; }
+ applyDraft(d);
+ toast('Bozza aggiornata con le modifiche fatte dal ' + (d.device || 'altro dispositivo'));
+}
+
+function applyDraft(d) {
+ const next = migrateState({ ...(d.state || {}), sheets: (d.state && d.state.sheets) || [] });
+ if (!next) return;
+ const old = state || emptyState();
+ // gli avvisi push in sospeso restano di questo dispositivo
+ state = { ...next, noticePending: !!old.noticePending, noticeCursor: old.noticeCursor || null, noticeBody: old.noticeBody || '', noticeSent: old.noticeSent || 0 };
+ if (Array.isArray(d.employees)) employees = normalizeEmployees(d.employees);
+ if (d.pub && d.pub.version != null) lsSet(LS_PUB, d.pub);
+ draftInfo = { rev: d.rev, pending: false };
+ saveDraftInfo();
+ clearTimeout(saveTimer);
+ closeCellPicker();
+ closeMenu();
+ invalidate();
+ persist();
+ render();
+ setSyncState('saved', d.rev);
+}
+
+// Stesse modifiche fatte quasi insieme su due dispositivi: si sceglie quale bozza tenere
+function openDraftConflict(d) {
+ draftConflict = true;
+ clearTimeout(draftTimer);
+ draftTimer = 0;
+ setSyncState('conflict');
+ const other = d.device || 'altro dispositivo';
+ const here = deviceKind();
+ const body = $('#pkBody');
+ body.replaceChildren();
+ body.append(el('p', 'hint', 'Su questo ' + here + ' ci sono modifiche non ancora sincronizzate, e nel frattempo la bozza è stata cambiata dal ' + other + ' (alle ' + hhmm(d.rev) + '). Scegli quale versione tenere: l\'altra verrà sostituita.'));
+ const useServer = el('button', 'btn-primary btn-lg', 'Usa la bozza del ' + other);
+ useServer.type = 'button';
+ useServer.addEventListener('click', () => {
+ draftConflict = false;
+ applyDraft(d);
+ toast('Caricata la bozza del ' + other);
+ });
+ const keepLocal = el('button', 'btn btn-block', 'Tieni quella di questo ' + here);
+ keepLocal.type = 'button';
+ keepLocal.addEventListener('click', () => {
+ draftConflict = false;
+ draftInfo.rev = d.rev; // sovrascrive la versione appena vista
+ closeCellPicker();
+ syncDraftNow();
+ toast('Bozza di questo ' + here + ' inviata all\'altro dispositivo');
+ });
+ body.append(useServer, keepLocal);
+ openDrawer({ heading: 'Bozza modificata su un altro dispositivo', trigger: null, kind: 'conflict' });
 }
 
 /* =====================================================================
@@ -1003,6 +1178,7 @@ function openDrawer({ view = 'pkBody', eyebrow = '', heading = '', sub = null, t
 }
 function closeCellPicker() {
  if (!activePicker) return;
+ if (activePicker.kind === 'conflict') { draftConflict = false; setSyncState(draftInfo.pending ? 'saving' : 'saved'); }
  const btn = activePicker.trigger;
  activePicker = null;
  $('#pickerSheet').hidden = true;
@@ -1764,6 +1940,7 @@ async function start() {
  bootstrapEmployeesFromSheets();
  }
  render();
+ await pullDraft();
  if (!justLoaded) checkRemote();
 }
 
@@ -1877,12 +2054,16 @@ $('#mDelPost').addEventListener('click', () => { closeMenu(); deletePostazione(t
 $('#mDelCat').addEventListener('click', () => { closeMenu(); deleteCategory(activeCat); });
 
 $('#pubBtn').addEventListener('click', publish);
-$('#logout').addEventListener('click', () => { closeNav(); logout(false); });
+$('#logout').addEventListener('click', async () => {
+ closeNav();
+ if (draftInfo.pending && draftSupported) await pushDraft();
+ logout(false);
+});
 $('#reload').addEventListener('click', async () => {
  closeNav();
  if (state.dirty && !confirm('Scartare le modifiche non pubblicate e caricare i turni dal server?')) return;
  closeCellPicker();
- try { await loadRemote(); render(); toast('Ricaricato dal server'); }
+ try { await loadRemote(); render(); syncDraftNow(); toast('Ricaricato dal server'); }
  catch { toast('Server non raggiungibile'); }
 });
 
@@ -1895,13 +2076,15 @@ if ('ResizeObserver' in window) {
 window.matchMedia('(max-width: 760px)').addEventListener('change', () => { closeNav(); if (state && pw) renderBar(); });
 
 document.addEventListener('visibilitychange', () => {
- if (document.visibilityState === 'hidden') { flush(); return; }
+ if (document.visibilityState === 'hidden') { flush(); if (draftInfo.pending) pushDraft(); return; }
  if (!state || !pw) return;
+ if (Date.now() - lastDraftPull > 5000 && !activePicker) pullDraft();
  if (isoOf(new Date()) !== renderedToday && !activePicker) render(); // passata la mezzanotte
  if (Date.now() - lastRemoteCheck > REMOTE_CHECK_MS) checkRemote();
 });
 // Un'altra scheda ha modificato la bozza: allineati invece di sovrascriverla
 window.addEventListener('storage', (e) => {
+ if (e.key === LS_DRAFT && e.newValue) { draftInfo = lsGet(LS_DRAFT, draftInfo); return; }
  if (e.key !== LS_STATE || !e.newValue || !pw) return;
  try {
  const next = migrateState(JSON.parse(e.newValue));
@@ -1915,6 +2098,9 @@ window.addEventListener('storage', (e) => {
  toast('Bozza aggiornata da un\'altra scheda');
  } catch { /* ignore */ }
 });
+setInterval(() => {
+ if (document.visibilityState === 'visible' && pw && state && !activePicker) pullDraft();
+}, DRAFT_POLL);
 window.addEventListener('pagehide', flush);
 window.addEventListener('beforeunload', flush);
 window.addEventListener('scroll', onScroll, { passive: true });
