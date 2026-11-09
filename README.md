@@ -16,7 +16,7 @@ PWA per il responsabile: compila i turni per postazione e mese e li pubblica sul
 
 ## Rilascio: cose da ricordare
 
-1. **Aumenta `CACHE` in `sw.js`** (es. `resp-v10` → `resp-v11`) a ogni modifica, altrimenti le app installate possono restare alla versione vecchia.
+1. **Aumenta `CACHE` in `sw.js`** (es. `resp-v11` → `resp-v12`) a ogni modifica, altrimenti le app installate possono restare alla versione vecchia.
 2. Se cambi l'indirizzo del Worker in `config.js`, aggiornalo anche in `connect-src` dentro `_headers`, altrimenti il browser blocca le chiamate.
 
 ## API del Worker usate dall'app
@@ -40,7 +40,7 @@ PWA per il responsabile: compila i turni per postazione e mese e li pubblica sul
 
 - **Bozza locale**: le modifiche restano nel dispositivo finché non premi *Pubblica turni*. Se un altro dispositivo ha pubblicato nel frattempo, l'app avvisa prima di sovrascrivere e, se la bozza è pulita, si aggiorna da sola.
 - **Avvisi push ripresi**: se l'invio delle notifiche si interrompe, *Invia avviso* riparte dal punto raggiunto (niente notifiche doppie). L'avviso nomina solo i mesi cambiati.
-- **Conflitti**: le caselle con la stessa persona in turni sovrapposti (rosso) o con meno di 11 ore di riposo (arancione) sono evidenziate; il selettore lo segnala prima di assegnare.
+- **Conflitti** (in rosso): stessa persona in turni sovrapposti, oppure turno che inizia entro 1 ora dalla fine di una notte ("viene dalla notte"). Il pannello di assegnazione lo segnala prima di assegnare. Non c'è più l'avviso sul riposo minimo di 11 ore.
 - **Storico**: a ogni pubblicazione vengono inviati gli ultimi 12 mesi.
 - **Parole riservate** (non diventano dipendenti): `NO`, `RIPOSO`, `FERIE`, `MALATTIA`, `PERMESSO`, `FESTIVO`, `RECUPERO`, `LIBERO`, `ASSENTE`, `SCOPERTO`, `CHIUSO`, `ROL`, `CONGEDO`, `INFORTUNIO`.
 - **Accesso**: la password resta valida solo finché l'app è aperta (sopravvive al ricaricamento della pagina); chiudendo e riaprendo l'app viene richiesta di nuovo. La bozza dei turni resta salvata sul dispositivo.
