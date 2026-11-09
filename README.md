@@ -16,25 +16,23 @@ PWA per il responsabile: compila i turni per postazione e mese e li pubblica sul
 
 ## Rilascio: cose da ricordare
 
-1. **Aumenta `CACHE` in `sw.js`** (es. `resp-v11` → `resp-v12`) a ogni modifica, altrimenti le app installate possono restare alla versione vecchia.
+1. **Aumenta `CACHE` in `sw.js`** (es. `resp-v12` → `resp-v13`) a ogni modifica, altrimenti le app installate possono restare alla versione vecchia.
 2. Se cambi l'indirizzo del Worker in `config.js`, aggiornalo anche in `connect-src` dentro `_headers`, altrimenti il browser blocca le chiamate.
 
-## API del Worker usate dall'app
+## API del Worker `turni-sync` usate dall'app
+
+Il codice del Worker non è in questo repository: si gestisce dal pannello Cloudflare.
 
 | Metodo | Percorso | Auth | Uso |
 |---|---|---|---|
 | `GET` | `/api/auth` | `Bearer <password>` | Verifica password (200 ok, 401 errata, 429 troppi tentativi) |
-| `GET` | `/api/schedule` | – | `{ version, docs, employees, customStructures, deletedCategories, deletedTitles }` |
-| `PUT` | `/api/schedule` | `Bearer` | Sostituisce tutto; il corpo contiene anche `baseVersion` (versione su cui si basa la bozza). Risponde `{ version }` |
-| `POST` | `/api/notify` | `Bearer` | `{ title, body, cursor }` → `{ sent, done, cursor }`, a blocchi |
+| `GET` | `/api/schedule` | `Bearer` (facoltativa) | Senza password: `{ version, docs }` (app dei turnisti). Con la password: anche `employees`, `customStructures`, `deletedCategories`, `deletedTitles` |
+| `PUT` | `/api/schedule` | `Bearer` | Sostituisce tutto. `baseVersion` = versione su cui si basa la bozza: se sul server ce n'è una diversa risponde **409**. Risponde `{ version }` |
+| `POST` | `/api/notify` | `Bearer` | `{ title, body, cursor }` → `{ sent, done, cursor }`, a gruppi di 40 iscritti |
 
-### Modifiche consigliate lato Worker (il codice non è in questo repository)
+Limiti del Worker: fino a 400 fogli (postazioni × mesi) per pubblicazione; dopo 10 password sbagliate in 15 minuti lo stesso indirizzo IP riceve 429.
 
-- **Controllo di versione**: se `baseVersion` è presente e diverso dalla versione salvata, rispondere **409**. L'app gestisce già il 409 ("ci sono turni più recenti"). Lato client c'è comunque già un controllo prima di ogni pubblicazione.
-- **Limite ai tentativi** su `/api/auth` (rispondere 429): l'app mostra già il messaggio giusto.
-- **Token di sessione** con scadenza al posto della password inviata a ogni richiesta.
-- **Privacy**: `GET /api/schedule` è pubblico e contiene i nomi dei dipendenti; valutare una chiave anche per l'app dei turnisti.
-- Conservare il codice del Worker in questo repository (es. cartella `worker/`).
+Se la versione del Worker è precedente (limite di 60 fogli, dati di gestione non salvati), l'app mostra "aggiorna il Worker turni-sync" quando la pubblicazione viene rifiutata.
 
 ## Comportamenti principali
 

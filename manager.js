@@ -642,8 +642,9 @@ function fromDocs(docs, delCats = [], delTitles = []) {
 async function api(path, opt) {
  return fetch(API + path, { ...opt, headers: { ...(opt && opt.headers), authorization: 'Bearer ' + pw } });
 }
+// Con la password il Worker restituisce anche dipendenti, postazioni create a mano ed eliminazioni
 async function fetchSchedule() {
- const r = await fetch(API + '/api/schedule', { cache: 'no-store' });
+ const r = await api('/api/schedule', { cache: 'no-store' });
  if (!r.ok) throw new Error('server ' + r.status);
  return r.json();
 }
@@ -732,11 +733,14 @@ async function publish() {
  if (state.dirty) {
  const pub = lsGet(LS_PUB, {}) || {};
  const remote = await fetchSchedule();
+ // versione su cui si basa la pubblicazione: se si sceglie di sovrascrivere, quella appena vista sul server
+ let baseVersion = pub.version == null ? null : pub.version;
  if (remote && remote.version != null && String(remote.version) !== String(pub.version)) {
  if (!confirm('Attenzione: sul server ci sono turni pubblicati da un altro dispositivo DOPO il tuo ultimo caricamento.\n\nPubblicando sovrascriverai quelle modifiche. Continuare?\n\n(Annulla e usa "Ricarica dal server" per vederle prima.)')) {
  remoteNewer = true;
  return;
  }
+ baseVersion = remote.version;
  }
  const docs = toDocs();
  const months = changedMonths(docs, pub.months);
@@ -749,11 +753,16 @@ async function publish() {
  customStructures: state.customStructures || [],
  deletedCategories: state.deletedCategories || [],
  deletedTitles: state.deletedTitles || [],
- baseVersion: pub.version == null ? null : pub.version,
+ baseVersion,
  }),
  });
  if (r.status === 401) { logout(true); return; }
  if (r.status === 409) { remoteNewer = true; toast('Il server ha rifiutato: ci sono turni più recenti. Usa "Ricarica dal server".'); return; }
+ if (r.status === 429) { toast('Troppi tentativi con la password sbagliata: riprova tra qualche minuto'); return; }
+ if (r.status === 400 || r.status === 413) {
+ toast('Il server ha rifiutato i turni (' + docs.length + ' fogli): aggiorna il Worker turni-sync');
+ return;
+ }
  if (!r.ok) throw new Error('server ' + r.status);
  const d = await r.json().catch(() => ({}));
  Object.assign(state, {
