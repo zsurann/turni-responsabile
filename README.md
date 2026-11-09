@@ -8,14 +8,15 @@ PWA per il responsabile: compila i turni per postazione e mese e li pubblica sul
 |---|---|
 | `index.html` | Struttura della pagina |
 | `manager.js` | Tutta la logica (stato, categorie, conflitti, pubblicazione, interfaccia) |
-| `style.css` / `manager.css` | Stili di base / stili dell'editor (incluso `@media print`) |
+| `style.css` / `manager.css` | Base, accesso, struttura e pannelli / tabella, vista per giorno, stampa |
+| `fonts/` | Carattere Inter incluso nell'app (licenza SIL OFL, `fonts/OFL.txt`): niente Google Fonts, funziona offline |
 | `config.js` | Indirizzo del Worker (`self.TURNI_API`) |
 | `sw.js` | Service worker: rete prima, copia offline come riserva |
 | `_headers` | Header HTTP (Cloudflare Pages), compresa la Content-Security-Policy |
 
 ## Rilascio: cose da ricordare
 
-1. **Aumenta `CACHE` in `sw.js`** (es. `resp-v8` → `resp-v9`) a ogni modifica, altrimenti le app installate possono restare alla versione vecchia.
+1. **Aumenta `CACHE` in `sw.js`** (es. `resp-v9` → `resp-v10`) a ogni modifica, altrimenti le app installate possono restare alla versione vecchia.
 2. Se cambi l'indirizzo del Worker in `config.js`, aggiornalo anche in `connect-src` dentro `_headers`, altrimenti il browser blocca le chiamate.
 
 ## API del Worker usate dall'app
@@ -42,4 +43,5 @@ PWA per il responsabile: compila i turni per postazione e mese e li pubblica sul
 - **Conflitti**: le caselle con la stessa persona in turni sovrapposti (rosso) o con meno di 11 ore di riposo (arancione) sono evidenziate; il selettore lo segnala prima di assegnare.
 - **Storico**: a ogni pubblicazione vengono inviati gli ultimi 12 mesi.
 - **Parole riservate** (non diventano dipendenti): `NO`, `RIPOSO`, `FERIE`, `MALATTIA`, `PERMESSO`, `FESTIVO`, `RECUPERO`, `LIBERO`, `ASSENTE`, `SCOPERTO`, `CHIUSO`, `ROL`, `CONGEDO`, `INFORTUNIO`.
-- **Accesso**: la password non viene mai salvata: l'app la chiede a ogni apertura (anche dopo un ricaricamento). La bozza dei turni resta invece salvata sul dispositivo.
+- **Accesso**: la password resta valida solo finché l'app è aperta (sopravvive al ricaricamento della pagina); chiudendo e riaprendo l'app viene richiesta di nuovo. La bozza dei turni resta salvata sul dispositivo.
+- **Interfaccia**: su computer barra laterale con le postazioni, tabella e pannello di assegnazione a destra; su telefono vista per giorno, scelta della postazione in alto e pubblicazione in basso.
