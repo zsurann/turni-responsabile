@@ -11,7 +11,7 @@ const LS_STATE = 'resp.state.v4', LS_LEGACY_V3 = 'resp.state.v3', LS_LEGACY_V2 =
 const LS_PW = 'resp.pw.v1', LS_PUB = 'resp.pub.v1', LS_EMP = 'resp.emp.v2', LS_LEGACY_EMP = 'resp.emp.v1', LS_UI = 'resp.ui.v1';
 
 const KEEP_MONTHS = 12;      // mesi di storico inviati al server a ogni pubblicazione
-const MIN_REST_H = 11;       // riposo minimo tra due turni (D.Lgs. 66/2003)
+const NIGHT_GAP_MIN = 60;    // un turno che inizia entro 1 ora dalla fine di una notte = "viene dalla notte"
 const REMOTE_CHECK_MS = 60000;
 
 const MESI = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
@@ -488,7 +488,7 @@ function bootstrapEmployeesFromSheets() {
  if (employees.length) lsSet(LS_EMP, employees);
 }
 
-/* ---------- Indice turni: sovrapposizioni e riposi ---------- */
+/* ---------- Indice turni: sovrapposizioni e smonto notte ---------- */
 function cellInterval(col, raw, iso) {
  const p = parseCellValue(raw);
  let s = hourToMin(p.startHour); if (s === null) s = hourToMin(col.start);
@@ -496,10 +496,12 @@ function cellInterval(col, raw, iso) {
  if (s === null || e === null) return null;
  if (e <= s) e += 1440;
  const base = dayNum(iso) * 1440;
- return { a: base + s, b: base + e };
+ // turno di notte: passa la mezzanotte oppure è nella colonna Notte
+ const night = e > 1440 || colTheme(col) === 'col-n';
+ return { a: base + s, b: base + e, night };
 }
 
-// Mappa nome -> turni nel mese selezionato e in quelli adiacenti (per i riposi a cavallo)
+// Mappa nome -> turni nel mese selezionato e in quelli adiacenti (per le notti a cavallo del mese)
 function getShiftIdx() {
  if (shiftIdx && shiftIdx.month === month) return shiftIdx.map;
  const months = new Set([shiftMonth(month, -1), month, shiftMonth(month, 1)]);
@@ -525,23 +527,26 @@ function getShiftIdx() {
  return map;
 }
 
+// overlap: turni sovrapposti
+// fromNight: questo turno inizia subito dopo una notte dello stesso operatore
+// beforeNext: questo turno è una notte e subito dopo l'operatore ha già un altro turno
 function conflictsFor(name, iv, selfKey) {
- const out = { overlap: [], rest: [] };
+ const out = { overlap: [], fromNight: [], beforeNext: [] };
  if (!name || !iv) return out;
  (getShiftIdx().get(name) || []).forEach((o) => {
  if (o.key === selfKey) return;
  if (iv.a < o.b && o.a < iv.b) out.overlap.push(o);
- else {
- const gap = iv.a >= o.b ? iv.a - o.b : o.a - iv.b;
- if (gap < MIN_REST_H * 60) out.rest.push({ ...o, gap });
- }
+ else if (o.night && o.b <= iv.a && iv.a - o.b < NIGHT_GAP_MIN) out.fromNight.push(o);
+ else if (iv.night && iv.b <= o.a && o.a - iv.b < NIGHT_GAP_MIN) out.beforeNext.push(o);
  });
  return out;
 }
+const hasConflict = (c) => !!(c && (c.overlap.length || c.fromNight.length || c.beforeNext.length));
 const shiftDesc = (o) => o.title + ' ' + +o.iso.slice(8) + '/' + +o.iso.slice(5, 7) + ' ' + minToHHMM(o.a) + '–' + minToHHMM(o.b);
 function conflictText(c) {
  if (c.overlap.length) return 'Sovrapposto a: ' + c.overlap.map(shiftDesc).join('; ');
- if (c.rest.length) return 'Riposo inferiore a ' + MIN_REST_H + 'h (' + c.rest.map((o) => Math.round(o.gap / 6) / 10 + 'h con ' + shiftDesc(o)).join('; ') + ')';
+ if (c.fromNight.length) return 'L\'operatore viene dalla notte (' + shiftDesc(c.fromNight[0]) + ')';
+ if (c.beforeNext.length) return 'Dopo questa notte l\'operatore ha già un turno (' + shiftDesc(c.beforeNext[0]) + ')';
  return '';
 }
 
@@ -833,7 +838,7 @@ function renderMonthStats() {
  getShiftIdx().forEach((list, name) => list.forEach((o) => {
  if (o.month !== month) return;
  const c = conflictsFor(name, o, o.key);
- if (c.overlap.length || c.rest.length) conflicts++;
+ if (hasConflict(c)) conflicts++;
  }));
 
  const mk = (label, value) => {
@@ -1181,7 +1186,7 @@ function renderSummary() {
  mine.forEach((o) => {
  mins += o.b - o.a;
  const c = conflictsFor(name, o, o.key);
- if (c.overlap.length || c.rest.length) warn++;
+ if (hasConflict(c)) warn++;
  });
  rows.push({ name, n: mine.length, h: mins / 60, warn });
  });
@@ -1198,7 +1203,7 @@ function renderSummary() {
  const tr = el('tr');
  tr.append(el('td', '', r.name), el('td', 'num', String(r.n)), el('td', 'num', String(Math.round(r.h * 10) / 10).replace('.', ',')));
  const w = el('td', 'num' + (r.warn ? ' warn' : ''), r.warn ? '⚠ ' + r.warn : '—');
- if (r.warn) w.title = r.warn + ' turni con sovrapposizioni o riposo inferiore a ' + MIN_REST_H + ' h';
+ if (r.warn) w.title = r.warn + ' turni sovrapposti o subito dopo una notte';
  tr.append(w);
  tb.append(tr);
  });
@@ -1296,16 +1301,17 @@ function openCellPicker(sheet, key, colIdx, triggerBtn) {
  // Elenco dipendenti, ordinato per disponibilità
  const list = el('div', 'emps');
  const baseIv = cellInterval(col, formatCellValue('X', parsed.startHour, parsed.endHour), key);
- const rank = { cur: 0, ok: 1, warn: 2, conflict: 3 };
+ const rank = { cur: 0, ok: 1, night: 2, conflict: 3 };
  const rows = employees.map((empObj) => {
  const name = empObj.name;
  const isCur = parsed.name === name;
  const c = conflictsFor(name, baseIv, selfKey);
- const st = isCur ? 'cur' : (c.overlap.length ? 'conflict' : (c.rest.length ? 'warn' : 'ok'));
+ const st = isCur ? 'cur' : (c.overlap.length ? 'conflict' : (c.fromNight.length || c.beforeNext.length ? 'night' : 'ok'));
  let info = 'Disponibile';
  if (st === 'cur') info = 'Assegnato ora';
  else if (st === 'conflict') info = 'Già in turno · ' + shiftDesc(c.overlap[0]);
- else if (st === 'warn') info = 'Riposo ' + String(Math.round(c.rest[0].gap / 6) / 10).replace('.', ',') + ' h · ' + shiftDesc(c.rest[0]);
+ else if (c.fromNight.length) info = 'Viene dalla notte · ' + shiftDesc(c.fromNight[0]);
+ else if (c.beforeNext.length) info = 'Dopo questa notte ha già un turno · ' + shiftDesc(c.beforeNext[0]);
  const btn = el('button', 'emp' + (st === 'ok' ? '' : ' ' + st));
  btn.type = 'button';
  const t = el('span', 'emp-t');
@@ -1313,7 +1319,7 @@ function openCellPicker(sheet, key, colIdx, triggerBtn) {
  const mark = el('span', 'sdot');
  if (isCur) mark.append(icon('check', 18));
  btn.append(t, mark);
- if (st === 'conflict' || st === 'warn') btn.title = conflictText(c);
+ if (st === 'conflict' || st === 'night') btn.title = conflictText(c);
  btn.addEventListener('click', () => {
  const h = readHours();
  if (!h) return;
@@ -1546,7 +1552,7 @@ function copyFromPrevMonth(s) {
 /* ---------- Tabella (computer) e vista per giorno (telefono) ---------- */
 function cellState(s, key, i, col, val) {
  const conf = val ? conflictsFor(extractPureName(val), cellInterval(col, val, key), s.title + '|' + key + '|' + i) : null;
- const confCls = conf && conf.overlap.length ? 'conflict' : (conf && conf.rest.length ? 'rest-warn' : '');
+ const confCls = hasConflict(conf) ? 'conflict' : '';
  const cls = !val ? 'empty' : (val === 'NO' ? 'is-no' : '');
  return { cls: [cls, confCls].filter(Boolean).join(' '), confCls, confTxt: conf ? conflictText(conf) : '' };
 }
