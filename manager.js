@@ -12,7 +12,6 @@ const LS_PW = 'resp.pw.v1', LS_PUB = 'resp.pub.v1', LS_EMP = 'resp.emp.v2', LS_L
 
 const KEEP_MONTHS = 12;      // mesi di storico inviati al server a ogni pubblicazione
 const MIN_REST_H = 11;       // riposo minimo tra due turni (D.Lgs. 66/2003)
-const PW_DAYS = 30;          // durata dell'accesso "ricordato"
 const REMOTE_CHECK_MS = 60000;
 
 const MESI = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
@@ -217,23 +216,20 @@ function migrateState(raw) {
  };
 }
 
-/* ---------- Password: sessione o "ricordami" per PW_DAYS giorni ---------- */
+/* ---------- Password: valida finché l'app resta aperta ---------- */
+// sessionStorage sopravvive al ricaricamento della pagina ma viene cancellato
+// quando l'app (o la scheda) viene chiusa: alla riapertura la password viene richiesta.
 function loadPw() {
- try { const s = sessionStorage.getItem(LS_PW); if (s) return JSON.parse(s).pw || ''; } catch { /* ignore */ }
- const v = lsGet(LS_PW, '');
- if (typeof v === 'string') { if (v) savePw(v, true); return v; } // vecchio formato: migra
- if (v && v.pw && v.exp > Date.now()) return v.pw;
- if (v) lsSet(LS_PW, '');
- return '';
+ try { const v = JSON.parse(sessionStorage.getItem(LS_PW) || 'null'); return (v && v.pw) || ''; } catch { return ''; }
 }
-function savePw(p, remember) {
- clearPw();
- if (remember) lsSet(LS_PW, { pw: p, exp: Date.now() + PW_DAYS * 86400000 });
- else { try { sessionStorage.setItem(LS_PW, JSON.stringify({ pw: p })); } catch { /* ignore */ } }
+function savePw(p) {
+ try { sessionStorage.setItem(LS_PW, JSON.stringify({ pw: p })); } catch { /* ignore */ }
 }
 function clearPw() {
- try { localStorage.removeItem(LS_PW); sessionStorage.removeItem(LS_PW); } catch { /* ignore */ }
+ try { sessionStorage.removeItem(LS_PW); } catch { /* ignore */ }
 }
+// Le versioni precedenti la salvavano in modo permanente: la cancello
+try { localStorage.removeItem(LS_PW); } catch { /* ignore */ }
 
 let state = migrateState(lsGet(LS_STATE, null) || lsGet(LS_LEGACY_V3, null) || lsGet(LS_LEGACY_V2, null) || lsGet(LS_LEGACY_V1, null));
 let employees = normalizeEmployees(lsGet(LS_EMP, null) || lsGet(LS_LEGACY_EMP, []));
@@ -784,29 +780,49 @@ async function publish() {
  }
 }
 
-/* ---------- Riepilogo del mese selezionato ---------- */
-function renderMonthStats() {
- const [y, mo] = month.split('-').map(Number);
- const curMonth = ym(new Date());
- const mbar = $('.mbar');
- const badge = $('#mStateBadge');
+/* =====================================================================
+   INTERFACCIA
+   ===================================================================== */
+const GIORNI = ['Domenica', 'Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato'];
+const BAND = { 'col-m': 'Mattina', 'col-p': 'Pomeriggio', 'col-n': 'Notte', 'col-c': 'Continuativo' };
+const bandLabel = (col) => col.label || BAND[colTheme(col)];
+const SMALL_WORDS = new Set(['lato', 'del', 'della', 'dei', 'di', 'e', 'la', 'il', 'lo', 'le', 'al', 'alla']);
+// "CAMPO NORD RONDA LATO SUD" -> "Campo Nord Ronda lato Sud"
+const niceCase = (s) => String(s || '').toLowerCase().split(' ')
+ .map((w, i) => (i > 0 && SMALL_WORDS.has(w)) ? w : w.replace(/^(\p{L})/u, (c) => c.toUpperCase())).join(' ');
+// Nome breve della postazione dentro la sua categoria: "CAMPO SUD GABBIOTTO" in "CAMPO SUD" -> "Gabbiotto"
+function shortLabel(itemTitle, catId) {
+ const t = itemTitle.startsWith(catId + ' ') ? itemTitle.slice(catId.length + 1) : itemTitle;
+ return niceCase(t);
+}
+const isPhone = () => window.matchMedia('(max-width: 760px)').matches;
 
- mbar.classList.remove('past-month', 'future-month');
- if (month < curMonth) {
- mbar.classList.add('past-month');
- badge.textContent = 'Archivio mese concluso · ' + MESI[mo - 1] + ' ' + y;
- } else if (month > curMonth) {
- mbar.classList.add('future-month');
- badge.textContent = 'Pianificazione futura · ' + MESI[mo - 1] + ' ' + y;
- } else {
- badge.textContent = 'Mese in corso · ' + MESI[mo - 1] + ' ' + y;
- }
+// Icone SVG statiche (stringhe costanti, nessun dato dell'utente)
+const ICONS = {
+ warn: '<svg viewBox="0 0 24 24" width="S" height="S" aria-hidden="true"><path d="M12 3 2 21h20L12 3zm0 6v5m0 3v.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+ chev: '<svg viewBox="0 0 24 24" width="S" height="S" aria-hidden="true"><path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+ check: '<svg viewBox="0 0 24 24" width="S" height="S" aria-hidden="true"><path d="m5 12 5 5 9-10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+ x: '<svg viewBox="0 0 24 24" width="S" height="S" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+ search: '<svg viewBox="0 0 24 24" width="S" height="S" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="m20 20-3.5-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+ pen: '<svg viewBox="0 0 24 24" width="S" height="S" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>',
+};
+function icon(name, size = 16) {
+ const t = document.createElement('template');
+ t.innerHTML = ICONS[name].replace(/"S"/g, '"' + size + '"');
+ return t.content.firstChild;
+}
+
+/* ---------- Indicatori del mese ---------- */
+function renderMonthStats() {
+ const cur = ym(new Date());
+ const badge = $('#mStateBadge');
+ badge.className = 'state-badge' + (month < cur ? ' past' : (month > cur ? ' future' : ''));
+ badge.textContent = month < cur ? 'Mese concluso' : (month > cur ? 'Pianificazione' : 'Mese in corso');
 
  const activeTitles = new Set(allAvailableTitles());
  const monthSheets = state.sheets.filter((s) => s.month === month && activeTitles.has(canonicalSheetTitle(s.title)));
  let totalAssigned = 0, activeSheets = 0;
  const uniqueOps = new Set();
-
  monthSheets.forEach((s) => {
  let has = false;
  Object.entries(s.cells || {}).forEach(([date, arr]) => {
@@ -819,94 +835,124 @@ function renderMonthStats() {
  if (has) activeSheets++;
  });
 
- const mk = (v, l) => {
- const d = el('div', 'mstat');
- d.append(el('b', '', String(v)), el('span', '', l));
+ let conflicts = 0;
+ getShiftIdx().forEach((list, name) => list.forEach((o) => {
+ if (o.month !== month) return;
+ const c = conflictsFor(name, o, o.key);
+ if (c.overlap.length || c.rest.length) conflicts++;
+ }));
+
+ const mk = (label, value) => {
+ const d = el('div', 'kpi');
+ d.append(el('span', '', label), el('b', '', String(value)));
  return d;
  };
+ const conf = el('button', 'kpi' + (conflicts ? ' warn' : ''));
+ conf.type = 'button';
+ conf.title = 'Apri il riepilogo ore per dipendente';
+ conf.append(el('span', '', 'Da controllare'), el('b', '', conflicts ? conflicts + (conflicts === 1 ? ' turno' : ' turni') : 'Nessun conflitto'));
+ conf.addEventListener('click', (e) => openSummary(e.currentTarget));
  $('#mStats').replaceChildren(
- mk(activeSheets + ' / ' + activeTitles.size, 'Postazioni compilate in ' + MES3[mo - 1]),
- mk(totalAssigned, 'Turni assegnati in ' + MES3[mo - 1]),
- mk(uniqueOps.size, 'Operatori in ' + MES3[mo - 1])
+ mk('Postazioni compilate', activeSheets + ' / ' + activeTitles.size),
+ mk('Turni assegnati', totalAssigned),
+ mk('Operatori', uniqueOps.size),
+ conf
  );
 }
 
-/* ---------- Navigazione: Categorie -> Postazioni ---------- */
-function makeTab(label, isOn, hasData, dotTitle, count, onSelect, delLabel, onDelete) {
- const wrap = el('div', 'tab-wrap' + (isOn ? ' on' : ''));
- const b = el('button', 'tab');
- b.type = 'button';
- b.setAttribute('role', 'tab');
- b.setAttribute('aria-selected', String(isOn));
- b.append(el('span', '', label));
- if (count !== undefined) b.append(el('span', 'cat-cnt', String(count)));
- if (hasData) {
- const dot = el('i', 'tab-dot');
- dot.title = dotTitle;
- b.append(dot);
- }
- b.addEventListener('click', onSelect);
- wrap.append(b);
- // Il pulsante elimina compare solo sulla scheda attiva: niente eliminazioni per sbaglio
- if (isOn) {
- const delBtn = el('button', 'tab-del', '✕');
- delBtn.type = 'button';
- delBtn.title = delLabel;
- delBtn.setAttribute('aria-label', delLabel);
- delBtn.addEventListener('click', (e) => { e.stopPropagation(); onDelete(); });
- wrap.append(delBtn);
- }
- return wrap;
+/* ---------- Barra laterale: categorie e postazioni ---------- */
+function shiftCount(t) {
+ const s = sheetFor(t, month, false);
+ if (!s) return 0;
+ let n = 0;
+ Object.entries(s.cells || {}).forEach(([d, arr]) => {
+ if (d.slice(0, 7) === month) (arr || []).forEach((v) => { if (extractPureName(v)) n++; });
+ });
+ return n;
 }
 
-function renderCategoryNav() {
+function renderNav() {
  const cats = getCategories();
  if (!cats.length) return;
  activeCat = categoryOfTitle(title);
- const curCatObj = cats.find((c) => c.id === activeCat) || cats[0];
+ const groups = cats.map((c) => {
+ const g = el('div', 'side-group');
+ g.append(el('span', 'side-lbl', niceCase(c.label)));
+ c.items.forEach((it) => {
+ const on = it.title === title;
+ const b = el('button', 'navitem' + (on ? ' on' : ''));
+ b.type = 'button';
+ if (on) b.setAttribute('aria-current', 'page');
+ const n = shiftCount(it.title);
+ b.append(el('span', '', shortLabel(it.title, c.id)), el('span', 'navcnt', n ? String(n) : '—'));
+ b.title = it.title + (n ? ' · ' + n + ' turni in ' + monthName(month).toLowerCase() : '');
+ b.addEventListener('click', () => { title = it.title; closeNav(); render(); });
+ g.append(b);
+ });
+ return g;
+ });
+ $('#sideNav').replaceChildren(...groups);
 
- $('#catTabs').replaceChildren(...cats.map((c) => makeTab(
- c.label, c.id === curCatObj.id,
- c.items.some((it) => sheetHasData(it.title, month)), 'Contiene turni compilati in questo mese',
- c.items.length,
- () => {
- activeCat = c.id;
- if (!c.items.some((it) => it.title === title)) title = c.items[0].title;
- render();
- },
- 'Elimina categoria ' + c.label, () => deleteCategory(c.id)
- )));
+ const lbl = shortLabel(title, activeCat);
+ $('#pageCat').textContent = niceCase(activeCat);
+ $('#mainTableTitle').textContent = lbl;
+ const pp = $('#postPickTxt');
+ pp.replaceChildren(document.createTextNode(lbl + ' '), el('span', '', '· ' + niceCase(activeCat)));
+ $('#postPick').setAttribute('aria-label', 'Cambia postazione: ' + lbl + ', ' + niceCase(activeCat));
+ document.title = lbl + ' · ' + monthName(month) + ' · Turni La Falco';
+}
+const renderCategoryNav = renderNav;
 
- $('#subNavLabel').textContent = '2. Postazioni in ' + curCatObj.label + ':';
- $('#subTabs').replaceChildren(...curCatObj.items.map((it) => makeTab(
- it.label, it.title === title, sheetHasData(it.title, month), 'Turni presenti', undefined,
- () => { title = it.title; render(); },
- 'Elimina postazione ' + it.label, () => deletePostazione(it.title)
- )));
- $('#subNavBlock').hidden = false;
+function openNav() {
+ document.body.classList.add('nav-open');
+ $('#sideBg').hidden = false;
+ $('#postPick').setAttribute('aria-expanded', 'true');
+ const on = $('#sideNav .navitem.on') || $('#sideNav .navitem');
+ if (on) setTimeout(() => on.focus(), 60);
+}
+function closeNav() {
+ if (!document.body.classList.contains('nav-open')) return;
+ document.body.classList.remove('nav-open');
+ $('#sideBg').hidden = true;
+ $('#postPick').setAttribute('aria-expanded', 'false');
 }
 
-/* ---------- Pannello (bottom sheet) ---------- */
-function openSheet(triggerBtn, focusEl) {
+/* ---------- Pannello laterale (dialog) ---------- */
+const VIEWS = ['pkBody', 'empView', 'colsView', 'sumView'];
+function openDrawer({ view = 'pkBody', eyebrow = '', heading = '', sub = null, trigger = null, focus = null, foot = null, kind = '' }) {
+ VIEWS.forEach((v) => { $('#' + v).hidden = v !== view; });
+ $('#pkEyebrow').textContent = eyebrow;
+ $('#pkTitle').textContent = heading;
+ const subEl = $('#pkSub');
+ subEl.replaceChildren();
+ if (sub) subEl.append(...[].concat(sub));
+ const f = $('#pkFoot');
+ f.replaceChildren();
+ if (foot && foot.length) { f.append(...foot); f.hidden = false; } else f.hidden = true;
+ activePicker = { trigger, kind };
  $('#pickerSheet').hidden = false;
  document.body.classList.add('lock');
- setTimeout(() => (focusEl || $('#pkPanel')).focus(), 50);
+ setTimeout(() => (focus || $('#pkPanel')).focus(), 60);
 }
 function closeCellPicker() {
  if (!activePicker) return;
- const btn = activePicker.triggerBtn;
+ const btn = activePicker.trigger;
  activePicker = null;
  $('#pickerSheet').hidden = true;
  document.body.classList.remove('lock');
+ document.querySelectorAll('.cell.editing').forEach((x) => x.classList.remove('editing'));
  if (btn && btn.isConnected) btn.focus();
 }
+const footBtn = (txt, fn, disabled) => {
+ const b = el('button', 'btn', txt);
+ b.type = 'button';
+ b.disabled = !!disabled;
+ b.addEventListener('click', fn);
+ return b;
+};
 
-/* ---------- Modal: Aggiungi Nuova Postazione ---------- */
+/* ---------- Nuova postazione ---------- */
 function openAddPostazioneModal(triggerBtn) {
- activePicker = { triggerBtn };
- $('#pkTitle').textContent = 'Aggiungi nuova postazione';
- $('#pkSub').textContent = 'Inserisci il nome e scegli la categoria (es. Parchi, Campo Sud, Campo Nord)';
-
  const body = $('#pkBody');
  body.replaceChildren();
 
@@ -915,21 +961,15 @@ function openAddPostazioneModal(triggerBtn) {
  const nameLbl = el('label', '', 'Nome della postazione');
  nameLbl.htmlFor = 'newPostName';
  const nameInp = el('input');
- nameInp.id = 'newPostName';
- nameInp.type = 'text';
- nameInp.placeholder = 'Es. PARCO SAN GENNARO';
- nameInp.autocapitalize = 'characters';
- nameInp.spellcheck = false;
- nameInp.maxLength = 60;
+ Object.assign(nameInp, { id: 'newPostName', type: 'text', placeholder: 'Es. PARCO SAN GENNARO', autocapitalize: 'characters', spellcheck: false, maxLength: 60, autocomplete: 'off' });
  nameField.append(nameLbl, nameInp);
 
  const suggestBadge = el('div', 'suggest-badge');
  suggestBadge.hidden = true;
 
  const catField = el('div', 'struct-field');
- catField.append(el('label', '', 'Categoria di appartenenza'));
+ catField.append(el('span', 'field-lbl', 'Categoria'));
  const catGrid = el('div', 'struct-cats');
-
  const existingCats = [...new Set([...ALL_BASE_CATS, ...getCategories().map((c) => c.id)])];
  let chosenCat = activeCat || 'PARCHI';
  let manualCatOverride = false;
@@ -939,10 +979,7 @@ function openAddPostazioneModal(triggerBtn) {
  const ccLbl = el('label', '', 'Nome della nuova categoria');
  ccLbl.htmlFor = 'newCatName';
  const customCatInp = el('input');
- customCatInp.id = 'newCatName';
- customCatInp.type = 'text';
- customCatInp.placeholder = 'Es. VIGILANZA EVENTI';
- customCatInp.maxLength = 40;
+ Object.assign(customCatInp, { id: 'newCatName', type: 'text', placeholder: 'Es. VIGILANZA EVENTI', maxLength: 40, autocomplete: 'off' });
  customCatField.append(ccLbl, customCatInp);
 
  const renderCatButtons = () => {
@@ -951,26 +988,15 @@ function openAddPostazioneModal(triggerBtn) {
  const btn = el('button', 'struct-cat-btn' + (chosenCat === cid ? ' on' : ''));
  btn.type = 'button';
  btn.setAttribute('aria-pressed', String(chosenCat === cid));
- const desc = cid === 'PARCHI' ? 'Tutti i parchi (es. Cafasso, ecc.)' : (cid === 'CAMPO SUD' ? 'Gabbiotto, Ronda, Sud Rom' : (cid === 'CAMPO NORD' ? 'Gabbiotto, Ronda Nord/Sud' : 'Categoria personalizzata'));
- btn.append(el('b', '', cid), el('span', '', desc));
- btn.addEventListener('click', () => {
- chosenCat = cid;
- manualCatOverride = true;
- customCatField.hidden = true;
- renderCatButtons();
- });
+ const desc = cid === 'PARCHI' ? 'Parchi e giardini' : (cid === 'CAMPO SUD' ? 'Gabbiotto, Ronda, Rom' : (cid === 'CAMPO NORD' ? 'Gabbiotto, Ronde' : 'Categoria personalizzata'));
+ btn.append(el('b', '', niceCase(cid)), el('span', '', desc));
+ btn.addEventListener('click', () => { chosenCat = cid; manualCatOverride = true; customCatField.hidden = true; renderCatButtons(); });
  catGrid.append(btn);
  });
  const newBtn = el('button', 'struct-cat-btn' + (chosenCat === '__NEW__' ? ' on' : ''));
  newBtn.type = 'button';
  newBtn.append(el('b', '', '+ Nuova categoria'), el('span', '', 'Crea un nuovo gruppo'));
- newBtn.addEventListener('click', () => {
- chosenCat = '__NEW__';
- manualCatOverride = true;
- customCatField.hidden = false;
- renderCatButtons();
- customCatInp.focus();
- });
+ newBtn.addEventListener('click', () => { chosenCat = '__NEW__'; manualCatOverride = true; customCatField.hidden = false; renderCatButtons(); customCatInp.focus(); });
  catGrid.append(newBtn);
  };
 
@@ -979,24 +1005,19 @@ function openAddPostazioneModal(triggerBtn) {
  if (guessed && !manualCatOverride) {
  chosenCat = guessed;
  customCatField.hidden = true;
- suggestBadge.textContent = '✓ Categoria suggerita automaticamente dal nome: ' + guessed;
+ suggestBadge.textContent = 'Categoria suggerita dal nome: ' + niceCase(guessed);
  suggestBadge.hidden = false;
  renderCatButtons();
- } else if (!guessed) {
- suggestBadge.hidden = true;
- }
+ } else if (!guessed) suggestBadge.hidden = true;
  });
 
  renderCatButtons();
  catField.append(catGrid);
-
- const submitBtn = el('button', 'big', 'Aggiungi postazione');
+ const submitBtn = el('button', 'btn-primary btn-lg', 'Aggiungi postazione');
  submitBtn.type = 'submit';
-
  form.append(nameField, suggestBadge, catField, customCatField, submitBtn);
  form.addEventListener('submit', (e) => {
  e.preventDefault();
- // Il nome resta esattamente quello scritto (solo maiuscole/spazi): niente fusioni con postazioni esistenti
  const postName = normTitle(nameInp.value);
  if (!postName) return toast('Inserisci il nome della postazione');
  if (allAvailableTitles().includes(postName)) {
@@ -1023,50 +1044,42 @@ function openAddPostazioneModal(triggerBtn) {
  markDirty();
  closeCellPicker();
  render();
- toast('Postazione "' + postName + '" aggiunta in ' + finalCat);
+ toast('Postazione "' + postName + '" aggiunta in ' + niceCase(finalCat));
  });
-
  body.append(form);
- openSheet(triggerBtn, nameInp);
+ openDrawer({ heading: 'Nuova postazione', sub: 'Il nome resta esattamente come lo scrivi.', trigger: triggerBtn, focus: nameInp, kind: 'add' });
 }
 
-/* ---------- Lista Dipendenti con Campi assegnati ---------- */
+/* ---------- Dipendenti ---------- */
 function renderEmployees() {
  const cats = getCategories().map((c) => c.id);
-
  $('#empNewCats').replaceChildren(...cats.map((cid) => {
  const on = newEmpSelectedCats.has(cid);
- const b = el('button', 'cat-chk' + (on ? ' on' : ''), (on ? '✓ ' : '') + cid);
+ const b = el('button', 'chip' + (on ? ' on' : ''), niceCase(cid));
  b.type = 'button';
  b.setAttribute('aria-pressed', String(on));
  b.addEventListener('click', () => {
- if (newEmpSelectedCats.has(cid)) {
- if (newEmpSelectedCats.size > 1) newEmpSelectedCats.delete(cid);
- } else newEmpSelectedCats.add(cid);
+ if (newEmpSelectedCats.has(cid)) { if (newEmpSelectedCats.size > 1) newEmpSelectedCats.delete(cid); }
+ else newEmpSelectedCats.add(cid);
  renderEmployees();
  });
  return b;
  }));
 
- $('#empCountLbl').textContent = employees.length
- ? employees.length + (employees.length === 1 ? ' dipendente salvato' : ' dipendenti salvati')
- : 'Nessun dipendente salvato (clicca Gestisci)';
-
+ $('#empCountLbl').textContent = String(employees.length);
  const list = $('#empList');
  list.replaceChildren();
  if (!employees.length) {
- list.append(el('span', 'hint', 'Aggiungi i dipendenti qui sopra e scegli a quali campi sono assegnati (es. Campo Nord, Campo Sud, Parchi).'));
+ list.append(el('p', 'none', 'Nessun dipendente: aggiungili qui sopra e scegli in quali campi lavorano.'));
  return;
  }
-
  employees.forEach((emp) => {
  const row = el('div', 'emp-row');
  row.append(el('span', 'emp-name', emp.name));
-
  const tagsBox = el('div', 'emp-row-cats');
  cats.forEach((cid) => {
  const isAssigned = emp.cats.includes(cid);
- const tag = el('button', 'emp-cat-tag' + (isAssigned ? ' on' : ''), (isAssigned ? '✓ ' : '') + cid);
+ const tag = el('button', 'emp-cat-tag' + (isAssigned ? ' on' : ''), niceCase(cid));
  tag.type = 'button';
  tag.setAttribute('aria-pressed', String(isAssigned));
  tag.title = isAssigned ? 'Rimuovi ' + emp.name + ' da ' + cid : 'Assegna ' + emp.name + ' a ' + cid;
@@ -1080,25 +1093,29 @@ function renderEmployees() {
  });
  tagsBox.append(tag);
  });
-
- const del = el('button', 'emp-del', '✕');
+ const del = el('button', 'emp-del');
  del.type = 'button';
  del.title = 'Elimina ' + emp.name;
  del.setAttribute('aria-label', 'Elimina ' + emp.name);
+ del.append(icon('x', 14));
  del.addEventListener('click', () => {
  const snap = snapshot();
  employees = employees.filter((x) => x.name !== emp.name);
  markDirty();
  renderEmployees();
- toast(emp.name + ' rimosso dalla lista (i turni già assegnati restano)', undoAction(snap));
+ toast(emp.name + ' rimosso (i turni già assegnati restano)', undoAction(snap));
  });
-
  row.append(tagsBox, del);
  list.append(row);
  });
 }
+function openEmployees(trigger) {
+ closeNav();
+ renderEmployees();
+ openDrawer({ view: 'empView', heading: 'Dipendenti', sub: employees.length + (employees.length === 1 ? ' dipendente' : ' dipendenti') + ' · validi per tutte le postazioni', trigger, focus: isPhone() ? null : $('#empInput'), kind: 'emp' });
+}
 
-/* ---------- Riepilogo per dipendente (mese selezionato) ---------- */
+/* ---------- Riepilogo per dipendente ---------- */
 function renderSummary() {
  const box = $('#sumBody');
  if (!box || !state) return;
@@ -1116,29 +1133,33 @@ function renderSummary() {
  rows.push({ name, n: mine.length, h: mins / 60, warn });
  });
  rows.sort((a, b) => b.h - a.h || a.name.localeCompare(b.name, 'it'));
- $('#sumSub').textContent = rows.length
- ? rows.length + ' operatori · ' + MESI[+month.slice(5) - 1] + ' (tutte le postazioni)'
- : 'Nessun turno in ' + MESI[+month.slice(5) - 1];
+ $('#sumSub').textContent = rows.length ? rows.length + ' operatori in ' + monthName(month).toLowerCase() + ', tutte le postazioni' : 'Nessun turno in ' + monthName(month).toLowerCase();
  if (!rows.length) { box.replaceChildren(); return; }
  const t = el('table', 'sum-table');
  const hr = el('tr');
- ['Dipendente', 'Turni', 'Ore', 'Avvisi'].forEach((h) => hr.append(el('th', '', h)));
- const thead = el('thead'); thead.append(hr);
+ ['Dipendente', 'Turni', 'Ore', 'Avvisi'].forEach((h) => { const th = el('th', '', h); th.scope = 'col'; hr.append(th); });
+ const thead = el('thead');
+ thead.append(hr);
  const tb = el('tbody');
  rows.forEach((r) => {
  const tr = el('tr');
  tr.append(el('td', '', r.name), el('td', 'num', String(r.n)), el('td', 'num', String(Math.round(r.h * 10) / 10).replace('.', ',')));
  const w = el('td', 'num' + (r.warn ? ' warn' : ''), r.warn ? '⚠ ' + r.warn : '—');
- if (r.warn) w.title = r.warn + ' turni con sovrapposizioni o riposo inferiore a ' + MIN_REST_H + 'h';
+ if (r.warn) w.title = r.warn + ' turni con sovrapposizioni o riposo inferiore a ' + MIN_REST_H + ' h';
  tr.append(w);
  tb.append(tr);
  });
  t.append(thead, tb);
  box.replaceChildren(t);
 }
+function openSummary(trigger) {
+ closeNav();
+ renderSummary();
+ openDrawer({ view: 'sumView', eyebrow: 'Tutte le postazioni', heading: 'Riepilogo ore · ' + monthName(month), trigger, kind: 'sum' });
+}
 
-/* ---------- Selettore Rapido Dipendente ---------- */
-function openCellPicker(sheet, key, colIdx, triggerBtn, showAllCats = false, draftHours = null) {
+/* ---------- Pannello di assegnazione ---------- */
+function openCellPicker(sheet, key, colIdx, triggerBtn) {
  const cols = sheet.cols;
  const cellMap = sheet.cells;
  const col = cols[colIdx];
@@ -1149,16 +1170,12 @@ function openCellPicker(sheet, key, colIdx, triggerBtn, showAllCats = false, dra
  const sheetCat = sheet.category || categoryOfTitle(sheet.title);
  const selfKey = sheet.title + '|' + key + '|' + colIdx;
 
- activePicker = { sheet, key, colIdx, triggerBtn, parsed };
- $('#pkTitle').textContent = GG[dow] + ' ' + d + ' ' + MESI[mo - 1] + ' · ' + col.start + '–' + col.end;
- $('#pkSub').textContent = sheet.title + ' (' + sheetCat + ')' + (col.label ? ' · ' + col.label : '');
-
  const body = $('#pkBody');
  body.replaceChildren();
 
- // Legge e valida gli orari personalizzati
+ let hStart, hEnd;
  const readHours = () => {
- const s = hStart.inp.value.trim().replace('.', ':'), e = hEnd.inp.value.trim().replace('.', ':');
+ const s = hStart.value.trim().replace('.', ':'), e = hEnd.value.trim().replace('.', ':');
  if ((s && hourToMin(s) === null) || (e && hourToMin(e) === null)) {
  toast('Orario non valido: scrivi ad es. 18 oppure 18:30');
  return null;
@@ -1175,7 +1192,7 @@ function openCellPicker(sheet, key, colIdx, triggerBtn, showAllCats = false, dra
  const pure = extractPureName(v);
  let addedEmp = false;
  if (pure && pure.length >= 2 && !employees.some((x) => x.name === pure)) {
- if (confirm('"' + pure + '" non è nella lista dipendenti.\n\nOK = aggiungilo ai dipendenti di ' + sheetCat + '\nAnnulla = scrivilo solo in questa casella')) {
+ if (confirm('"' + pure + '" non è nella lista dipendenti.\n\nOK = aggiungilo ai dipendenti di ' + niceCase(sheetCat) + '\nAnnulla = scrivilo solo in questa casella')) {
  employees.push({ name: pure, cats: [sheetCat] });
  employees.sort((a, b) => a.name.localeCompare(b.name, 'it'));
  addedEmp = true;
@@ -1191,161 +1208,183 @@ function openCellPicker(sheet, key, colIdx, triggerBtn, showAllCats = false, dra
  closeCellPicker();
  };
 
+ // Assegnazione attuale
  if (curRaw) {
  const curBox = el('div', 'pk-current');
  const left = el('div');
- left.append(el('span', 'q', 'Attualmente assegnato'), el('b', '', curRaw));
- const clr = el('button', 'pk-clear', 'Svuota casella');
- clr.type = 'button';
- clr.addEventListener('click', () => setCellValue(''));
- curBox.append(left, clr);
+ left.append(el('span', '', 'Assegnato ora'), el('b', '', curRaw));
+ curBox.append(left);
  body.append(curBox);
  const curConf = conflictText(conflictsFor(extractPureName(curRaw), cellInterval(col, curRaw, key), selfKey));
  if (curConf) body.append(el('p', 'pk-warn', '⚠ ' + curConf));
  }
 
- const hrsBox = el('div', 'pk-hours');
- const mkHr = (lbl, ph, initVal, id) => {
+ // Ricerca
+ const sLbl = el('label', 'field-lbl', 'Cerca o scrivi un nome');
+ sLbl.htmlFor = 'pkSearch';
+ const sBox = el('div', 'search');
+ const sInp = el('input');
+ Object.assign(sInp, { id: 'pkSearch', type: 'text', placeholder: 'Es. Rossi', autocapitalize: 'characters', spellcheck: false, maxLength: 60, autocomplete: 'off' });
+ sBox.append(icon('search'), sInp);
+ body.append(sLbl, sBox);
+
+ // Filtri
+ const assigned = employees.filter((e) => e.cats.includes(sheetCat));
+ let showAll = !assigned.length;
+ const chips = el('div', 'chips');
+ const chipCat = el('button', 'chip', niceCase(sheetCat) + ' · ' + assigned.length);
+ const chipAll = el('button', 'chip', 'Tutti · ' + employees.length);
+ [chipCat, chipAll].forEach((c) => { c.type = 'button'; });
+ chipCat.addEventListener('click', () => { showAll = false; applyFilter(); });
+ chipAll.addEventListener('click', () => { showAll = true; applyFilter(); });
+ chips.append(chipCat, chipAll);
+ body.append(chips);
+
+ // Elenco dipendenti, ordinato per disponibilità
+ const list = el('div', 'emps');
+ const baseIv = cellInterval(col, formatCellValue('X', parsed.startHour, parsed.endHour), key);
+ const rank = { cur: 0, ok: 1, warn: 2, conflict: 3 };
+ const rows = employees.map((empObj) => {
+ const name = empObj.name;
+ const isCur = parsed.name === name;
+ const c = conflictsFor(name, baseIv, selfKey);
+ const st = isCur ? 'cur' : (c.overlap.length ? 'conflict' : (c.rest.length ? 'warn' : 'ok'));
+ let info = 'Disponibile';
+ if (st === 'cur') info = 'Assegnato ora';
+ else if (st === 'conflict') info = 'Già in turno · ' + shiftDesc(c.overlap[0]);
+ else if (st === 'warn') info = 'Riposo ' + String(Math.round(c.rest[0].gap / 6) / 10).replace('.', ',') + ' h · ' + shiftDesc(c.rest[0]);
+ const btn = el('button', 'emp' + (st === 'ok' ? '' : ' ' + st));
+ btn.type = 'button';
+ const t = el('span', 'emp-t');
+ t.append(el('b', '', name), el('span', '', info));
+ const mark = el('span', 'sdot');
+ if (isCur) mark.append(icon('check', 18));
+ btn.append(t, mark);
+ if (st === 'conflict' || st === 'warn') btn.title = conflictText(c);
+ btn.addEventListener('click', () => {
+ const h = readHours();
+ if (!h) return;
+ if (st === 'conflict' && !confirm(name + ' risulta già in servizio in quell\'orario:\n' + c.overlap.map(shiftDesc).join('\n') + '\n\nAssegnare comunque?')) return;
+ setCellValue(formatCellValue(name, h[0], h[1]));
+ });
+ return { btn, name, inCat: empObj.cats.includes(sheetCat), cur: isCur, st };
+ }).sort((a, b) => rank[a.st] - rank[b.st] || a.name.localeCompare(b.name, 'it'));
+
+ const manual = el('button', 'emp manual');
+ manual.type = 'button';
+ const manualT = el('span', 'emp-t');
+ const manualB = el('b', '', '');
+ manualT.append(manualB, el('span', '', 'Scrivilo in questa casella'));
+ const manualMark = el('span', 'sdot');
+ manualMark.append(icon('pen', 16));
+ manual.append(manualT, manualMark);
+ manual.addEventListener('click', () => setCellValue(sInp.value));
+
+ const empty = el('p', 'none', 'Nessun dipendente assegnato a ' + niceCase(sheetCat) + '. Tocca "Tutti" oppure scrivi un nome.');
+ list.append(...rows.map((r) => r.btn), manual, empty);
+ body.append(list);
+
+ const applyFilter = () => {
+ const q = normName(sInp.value);
+ let visible = 0;
+ rows.forEach((r) => {
+ const show = (showAll || r.inCat || r.cur) && (!q || r.name.includes(q));
+ r.btn.hidden = !show;
+ if (show) visible++;
+ });
+ manual.hidden = !q || rows.some((r) => r.name === q);
+ manualB.textContent = '«' + q + '»';
+ empty.hidden = visible > 0 || !!q;
+ chipCat.classList.toggle('on', !showAll);
+ chipAll.classList.toggle('on', showAll);
+ chipCat.setAttribute('aria-pressed', String(!showAll));
+ chipAll.setAttribute('aria-pressed', String(showAll));
+ };
+ sInp.addEventListener('input', applyFilter);
+ sInp.addEventListener('keydown', (e) => {
+ if (e.key !== 'Enter') return;
+ e.preventDefault();
+ const vis = rows.filter((r) => !r.btn.hidden);
+ if (vis.length === 1) vis[0].btn.click();
+ else if (sInp.value.trim()) manual.click();
+ });
+ applyFilter();
+
+ // Orario diverso
+ const sec = el('div', 'pk-sec');
+ sec.append(el('span', 'field-lbl', 'Orario diverso (facoltativo)'));
+ const hrs = el('div', 'pk-hours');
+ const mkHr = (lbl, ph, val, id) => {
  const w = el('div');
  const l = el('label', '', lbl);
  l.htmlFor = id;
  const inp = el('input');
- inp.id = id;
- inp.type = 'text';
- inp.inputMode = 'decimal';
- inp.placeholder = ph;
- inp.value = initVal;
- inp.maxLength = 5;
+ Object.assign(inp, { id, type: 'text', inputMode: 'decimal', placeholder: ph, value: val, maxLength: 5, autocomplete: 'off' });
  w.append(l, inp);
- return { w, inp };
+ hrs.append(w);
+ return inp;
  };
- const hStart = mkHr('Inizio personalizzato (opz.)', 'Es. 18', draftHours ? draftHours[0] : parsed.startHour, 'pkHStart');
- const hEnd = mkHr('Fine / Prolungamento (opz.)', 'Es. 18', draftHours ? draftHours[1] : parsed.endHour, 'pkHEnd');
- hrsBox.append(hStart.w, hEnd.w);
-
- const assignedEmps = employees.filter((e) => e.cats.includes(sheetCat));
- const otherEmps = employees.filter((e) => !e.cats.includes(sheetCat));
- const visibleEmps = showAllCats ? employees : assignedEmps;
-
- body.append(el('p', 'q', showAllCats ? 'Tutti i dipendenti (' + employees.length + ')' : 'Dipendenti assegnati a ' + sheetCat + ' (' + assignedEmps.length + ')'));
- const grid = el('div', 'pk-grid');
- const baseIv = cellInterval(col, formatCellValue('X', hStart.inp.value, hEnd.inp.value), key);
-
- visibleEmps.forEach((empObj) => {
- const emp = empObj.name;
- const isCur = parsed.name === emp;
- const c = conflictsFor(emp, baseIv, selfKey);
- const cls = isCur ? ' active' : (c.overlap.length ? ' conflict' : (c.rest.length ? ' warn' : ''));
- const btn = el('button', 'pk-emp' + cls);
- btn.type = 'button';
- btn.append(el('b', '', emp));
- let info = 'Disponibile · ' + empObj.cats.join(', ');
- if (c.overlap.length) info = '⚠ Già in: ' + shiftDesc(c.overlap[0]);
- else if (c.rest.length) info = '⚠ Riposo ' + Math.round(c.rest[0].gap / 6) / 10 + 'h: ' + shiftDesc(c.rest[0]);
- if (isCur) info = 'Selezionato ✓';
- btn.append(el('span', '', info));
- if (c.overlap.length || c.rest.length) btn.title = conflictText(c);
- btn.addEventListener('click', () => {
- const h = readHours();
- if (!h) return;
- if (c.overlap.length && !isCur && !confirm(emp + ' risulta già in servizio in quell\'orario:\n' + c.overlap.map(shiftDesc).join('\n') + '\n\nAssegnare comunque?')) return;
- setCellValue(formatCellValue(emp, h[0], h[1]));
- });
- grid.append(btn);
- });
-
- const noBtn = el('button', 'pk-emp' + (curRaw === 'NO' ? ' active' : ''));
- noBtn.type = 'button';
- noBtn.append(el('b', '', 'NO'), el('span', '', 'Turno scoperto / non attivo'));
- noBtn.addEventListener('click', () => setCellValue('NO'));
- grid.append(noBtn);
- body.append(grid);
-
- if (!assignedEmps.length && !showAllCats) {
- body.append(el('p', 'none', 'Nessun dipendente assegnato a "' + sheetCat + '". Puoi abilitarli nella sezione "Lista dipendenti e campi" oppure mostrare quelli di altri settori qui sotto.'));
- }
-
- if (otherEmps.length > 0) {
- const toggleOther = el('button', 'linkbtn', showAllCats
- ? '▲ Mostra solo dipendenti di ' + sheetCat
- : '▼ Mostra anche dipendenti di altri campi (' + otherEmps.length + ' nascosti)');
- toggleOther.type = 'button';
- toggleOther.addEventListener('click', () => openCellPicker(sheet, key, colIdx, triggerBtn, !showAllCats, [hStart.inp.value, hEnd.inp.value]));
- body.append(toggleOther);
- }
-
- body.append(el('p', 'q', 'Orario continuativo, ridotto o prolungato (facoltativo)'));
- body.append(hrsBox);
+ hStart = mkHr('Inizia alle', col.start, parsed.startHour, 'pkHStart');
+ hEnd = mkHr('Finisce alle', col.end, parsed.endHour, 'pkHEnd');
+ sec.append(hrs);
  if (parsed.name && parsed.name !== 'NO') {
- const applyHrs = el('button', 'ghost', 'Aggiorna orario per ' + parsed.name);
+ const applyHrs = el('button', 'linkbtn', 'Aggiorna solo l\'orario di ' + parsed.name);
  applyHrs.type = 'button';
- applyHrs.addEventListener('click', () => {
- const h = readHours();
- if (h) setCellValue(formatCellValue(parsed.name, h[0], h[1]));
- });
- body.append(applyHrs);
+ applyHrs.addEventListener('click', () => { const h = readHours(); if (h) setCellValue(formatCellValue(parsed.name, h[0], h[1])); });
+ sec.append(applyHrs);
  }
+ body.append(sec);
 
- body.append(el('p', 'q', 'Oppure scrivi un nome manualmente (verrà assegnato a ' + sheetCat + ')'));
- const manualForm = el('form', 'row');
- const manualInp = el('input');
- manualInp.type = 'text';
- manualInp.placeholder = 'Scrivi nome (es. ROSSI M. o ROSSI M. 18)';
- manualInp.setAttribute('aria-label', 'Nome manuale');
- manualInp.value = curRaw;
- manualInp.autocapitalize = 'characters';
- manualInp.spellcheck = false;
- manualInp.maxLength = 60;
- const manualBtn = el('button', '', 'Imposta');
- manualBtn.type = 'submit';
- manualForm.append(manualInp, manualBtn);
- manualForm.addEventListener('submit', (e) => {
- e.preventDefault();
- setCellValue(manualInp.value);
+ if (triggerBtn && triggerBtn.classList.contains('cell')) triggerBtn.classList.add('editing');
+ const dotEl = el('i', 'bdot ' + colTheme(col));
+ openDrawer({
+ eyebrow: niceCase(sheetCat) + ' · ' + shortLabel(sheet.title, sheetCat),
+ heading: GIORNI[dow] + ' ' + d + ' ' + MESI[mo - 1].toLowerCase(),
+ sub: [dotEl, document.createTextNode(bandLabel(col) + ' · ' + col.start + '–' + col.end)],
+ trigger: triggerBtn,
+ focus: isPhone() ? null : sInp,
+ foot: [footBtn('Svuota casella', () => setCellValue(''), !curRaw), footBtn('Turno scoperto (NO)', () => setCellValue('NO'), curRaw === 'NO')],
+ kind: 'cell',
  });
- body.append(manualForm);
-
- openSheet(triggerBtn);
 }
 
-/* ---------- Dock di Pubblicazione ---------- */
+/* ---------- Stato di pubblicazione ---------- */
 function renderBar() {
  const pub = lsGet(LS_PUB, null);
- const bar = $('#pubbar'), ttl = $('#pubTitle'), st = $('#pubStatus');
+ const wrap = $('#pubbar'), ttl = $('#pubTitle'), st = $('#pubStatus');
  const pending = !!state.noticePending;
  const needsAction = !!(state.dirty || pending);
-
- bar.classList.toggle('is-dirty', needsAction);
- bar.classList.toggle('is-conflict', remoteNewer && !!state.dirty);
+ wrap.classList.toggle('is-dirty', needsAction);
+ wrap.classList.toggle('is-conflict', remoteNewer && !!state.dirty);
  if (state.dirty && remoteNewer) {
- ttl.textContent = 'Attenzione: il server ha turni più recenti';
- st.textContent = 'Un altro dispositivo ha pubblicato · pubblicando li sovrascrivi';
+ ttl.textContent = 'Il server ha turni più recenti';
+ st.textContent = 'Un altro dispositivo ha pubblicato: pubblicando li sovrascrivi';
  } else if (state.dirty) {
- ttl.textContent = 'Modifiche in bozza da pubblicare';
- st.textContent = 'Salvate sul dispositivo · premi Pubblica turni per inviarle a tutti';
+ ttl.textContent = 'Bozza da pubblicare';
+ st.textContent = 'Salvata su questo dispositivo';
  } else if (pending) {
- ttl.textContent = 'Avviso push in sospeso';
- st.textContent = 'Turni pubblicati, ma la notifica non è partita del tutto · riprova';
+ ttl.textContent = 'Avviso da inviare';
+ st.textContent = 'Turni pubblicati, ma la notifica non è partita del tutto';
  } else if (pub && pub.version) {
- const d = new Date(pub.version);
- ttl.textContent = 'Tutti i turni sono pubblicati e sincronizzati';
- st.textContent = isNaN(d) ? 'Ultima versione pubblicata caricata' : 'Ultimo invio il ' + d.getDate() + ' ' + MES3[d.getMonth()] + ' alle ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+ const dt = new Date(pub.version);
+ ttl.textContent = isNaN(dt) || dt.getFullYear() < 2020 ? 'Pubblicato' : 'Pubblicato il ' + dt.getDate() + ' ' + MES3[dt.getMonth()] + ', ' + pad(dt.getHours()) + ':' + pad(dt.getMinutes());
+ st.textContent = 'Tutti i turni sono sincronizzati';
  } else {
- ttl.textContent = 'Pronto per la pubblicazione';
- st.textContent = 'Compila le caselle e pubblica i turni';
+ ttl.textContent = 'Nessuna modifica';
+ st.textContent = 'Compila le caselle e pubblica';
  }
- $('#pubBtnTxt').textContent = !state.dirty && pending ? 'Invia avviso' : 'Pubblica turni';
+ $('#pubChip').title = st.textContent;
+ $('#pubBtnTxt').textContent = !state.dirty && pending ? 'Invia avviso' : (isPhone() ? 'Pubblica' : 'Pubblica turni');
  $('#pubBtn').disabled = !needsAction;
 }
 
-/* ---------- Editor colonne orarie ---------- */
+/* ---------- Orari delle colonne ---------- */
 function renderColsEditor(s) {
  const box = $('#colsBox');
  const cols = s.cols;
  box.replaceChildren();
- const mName = MESI[+month.slice(5) - 1];
-
- $('#colsCountLbl').textContent = cols.length + (cols.length === 1 ? ' colonna oraria' : ' colonne orarie') + ' · ' + mName;
+ const mName = monthName(month);
+ box.append(el('p', 'hint', 'Gli orari valgono per ' + mName.toLowerCase() + '. I mesi nuovi copiano quelli dell\'ultimo mese compilato.'));
 
  cols.forEach((c, i) => {
  const row = el('div', 'colrow');
@@ -1358,11 +1397,9 @@ function renderColsEditor(s) {
  inp.id = id;
  inp.type = type;
  inp.value = c[key] || '';
+ if (type === 'text') { inp.maxLength = 30; inp.placeholder = BAND[colTheme(c)]; }
  inp.addEventListener('change', () => {
- if (type === 'time' && !inp.value) {
- inp.value = c[key] || '';
- return toast('Inserisci un orario valido');
- }
+ if (type === 'time' && !inp.value) { inp.value = c[key] || ''; return toast('Inserisci un orario valido'); }
  c[key] = type === 'time' ? inp.value : inp.value.trim();
  markDirty();
  renderAllGrids(s);
@@ -1371,19 +1408,20 @@ function renderColsEditor(s) {
  return w;
  };
  row.append(f('Inizio', 'time', 'start'), f('Fine', 'time', 'end'));
- const x = el('button', 'colx', '✕');
+ const x = el('button', 'colx');
  x.type = 'button';
  x.setAttribute('aria-label', 'Rimuovi colonna ' + c.start + '–' + c.end);
+ x.append(icon('x', 16));
  x.addEventListener('click', () => {
  if (cols.length <= 1) return toast('Serve almeno una colonna');
- if (!confirm('Rimuovere questa colonna (' + c.start + '–' + c.end + ') e i nomi che contiene in ' + mName + '?')) return;
+ if (!confirm('Rimuovere la colonna ' + c.start + '–' + c.end + ' e i nomi che contiene in ' + mName.toLowerCase() + '?')) return;
  cols.splice(i, 1);
  Object.keys(s.cells).forEach((k) => s.cells[k].splice(i, 1));
  markDirty();
  renderColsEditor(s);
  renderAllGrids(s);
  });
- const nm = f('Nome colonna (facoltativo, es. Turno Extra)', 'text', 'label');
+ const nm = f('Nome colonna (facoltativo)', 'text', 'label');
  nm.className = 'colname';
  row.append(x, nm);
  box.append(row);
@@ -1391,50 +1429,52 @@ function renderColsEditor(s) {
 
  const acts = el('div', 'colactions');
  const btn = (txt, fn) => { const b = el('button', 'linkbtn', txt); b.type = 'button'; b.addEventListener('click', fn); return b; };
-
- const add = btn('+ Aggiungi colonna oraria', () => {
+ acts.append(
+ btn('+ Aggiungi colonna oraria', () => {
  cols.push({ start: '06:00', end: '14:00', label: '' });
  markDirty();
  renderColsEditor(s);
  renderAllGrids(s);
- });
-
- const applyNext = btn('Applica questi orari ai mesi successivi', () => {
+ }),
+ btn('Applica questi orari ai mesi successivi', () => {
  const later = state.sheets.filter((x) => canonicalSheetTitle(x.title) === s.title && x.month > s.month);
  if (!later.length) return toast('Nessun mese successivo già creato: i nuovi mesi useranno questi orari');
  const same = later.filter((x) => x.cols.length === cols.length);
  if (!same.length) return toast('I mesi successivi hanno un numero diverso di colonne: aggiornali a mano');
- if (!confirm('Copiare orari e nomi delle colonne su ' + same.length + ' mesi successivi di ' + s.title + '? I nomi nelle caselle restano invariati.')) return;
- same.forEach((x) => { x.cols = cols.map((c) => ({ ...c })); });
+ if (!confirm('Copiare orari e nomi delle colonne su ' + same.length + ' mesi successivi? I nomi nelle caselle restano invariati.')) return;
+ same.forEach((x) => { x.cols = cols.map((cc) => ({ ...cc })); });
  markDirty();
  toast('Orari applicati a ' + same.length + ' mesi' + (same.length < later.length ? ' (' + (later.length - same.length) + ' saltati: colonne diverse)' : ''));
- });
+ })
+ );
+ box.append(acts);
+}
+function openCols(trigger) {
+ closeNav();
+ closeMenu();
+ const s = sheetFor(title, month, true);
+ renderColsEditor(s);
+ const cat = s.category || categoryOfTitle(s.title);
+ openDrawer({ view: 'colsView', eyebrow: niceCase(cat) + ' · ' + shortLabel(s.title, cat), heading: 'Orari delle colonne', trigger, kind: 'cols' });
+}
 
- const copyPrev = btn('Copia turni dal mese precedente', () => copyFromPrevMonth(s));
-
- const clearMonth = btn('Svuota turni ' + mName, () => {
- if (!confirm('Svuotare tutti i turni di ' + s.title + ' nel mese di ' + mName + '?')) return;
+function clearMonth(s) {
+ const mName = monthName(month).toLowerCase();
+ if (!confirm('Svuotare tutti i turni di ' + s.title + ' in ' + mName + '?')) return;
  const snap = snapshot();
  s.cells = {};
  markDirty();
  render();
  toast('Turni di ' + mName + ' svuotati', undoAction(snap));
- });
-
- const delPost = btn('Elimina postazione ' + s.title, () => deletePostazione(s.title));
- delPost.classList.add('danger');
-
- acts.append(add, copyPrev, applyNext, clearMonth, delPost);
- box.append(acts);
 }
 
 // Ripete lo schema delle ultime 4 settimane del mese precedente (stessi giorni della settimana)
 function copyFromPrevMonth(s) {
  const pm = shiftMonth(s.month, -1);
  const prev = sheetFor(s.title, pm, false);
- if (!prev || !Object.keys(prev.cells || {}).length) return toast('Nessun turno in ' + monthName(pm) + ' per ' + s.title);
+ if (!prev || !Object.keys(prev.cells || {}).length) return toast('Nessun turno in ' + monthName(pm).toLowerCase() + ' per questa postazione');
  const hasData = Object.values(s.cells || {}).some((a) => (a || []).some((x) => x));
- if (!confirm('Copiare in ' + monthName(s.month) + ' lo schema di ' + monthName(pm) + ' per ' + s.title + '?\n\nOgni giorno prende i turni dello stesso giorno della settimana di 4 settimane prima.' + (hasData ? '\n\nATTENZIONE: i turni già presenti in ' + monthName(s.month) + ' verranno sostituiti.' : ''))) return;
+ if (!confirm('Copiare in ' + monthName(s.month).toLowerCase() + ' lo schema di ' + monthName(pm).toLowerCase() + '?\n\nOgni giorno prende i turni dello stesso giorno della settimana di 4 settimane prima.' + (hasData ? '\n\nATTENZIONE: i turni già presenti verranno sostituiti.' : ''))) return;
  const snap = snapshot();
  s.cols = prev.cols.map((c) => ({ ...c }));
  const cells = {};
@@ -1447,25 +1487,35 @@ function copyFromPrevMonth(s) {
  s.cells = cells;
  markDirty();
  render();
- toast('Schema copiato da ' + monthName(pm), undoAction(snap));
+ toast('Schema copiato da ' + monthName(pm).toLowerCase(), undoAction(snap));
 }
 
-/* ---------- Tabella turni ---------- */
+/* ---------- Tabella (computer) e vista per giorno (telefono) ---------- */
+function cellState(s, key, i, col, val) {
+ const conf = val ? conflictsFor(extractPureName(val), cellInterval(col, val, key), s.title + '|' + key + '|' + i) : null;
+ const confCls = conf && conf.overlap.length ? 'conflict' : (conf && conf.rest.length ? 'rest-warn' : '');
+ const cls = !val ? 'empty' : (val === 'NO' ? 'is-no' : '');
+ return { cls: [cls, confCls].filter(Boolean).join(' '), confCls, confTxt: conf ? conflictText(conf) : '' };
+}
+
 function buildTableDOM(tableEl, s) {
  const cols = s.cols;
  const cellMap = s.cells;
  tableEl.replaceChildren();
+ const dayList = $('#dayList');
+ dayList.replaceChildren();
  if (!cols.length) return;
 
  const hr = el('tr');
- hr.append(el('th', 'day', 'Giorno'));
+ const th0 = el('th', 'day', 'Giorno');
+ th0.scope = 'col';
+ hr.append(th0);
  cols.forEach((c) => {
- const theme = colTheme(c);
- const th = el('th', theme);
+ const th = el('th');
  th.scope = 'col';
- th.append(el('span', 'th-time', c.start + ' – ' + c.end));
- const defaultLbl = theme === 'col-m' ? 'Mattina' : (theme === 'col-p' ? 'Pomeriggio' : (theme === 'col-n' ? 'Notte' : 'Continuativo / Extra'));
- th.append(el('small', '', c.label || defaultLbl));
+ const inn = el('span', 'th-in');
+ inn.append(el('i', 'bdot ' + colTheme(c)), document.createTextNode(bandLabel(c)), el('span', 'th-time', c.start + '–' + c.end));
+ th.append(inn);
  hr.append(th);
  });
  const thead = el('thead');
@@ -1476,56 +1526,83 @@ function buildTableDOM(tableEl, s) {
  const [y, mo] = month.split('-').map(Number);
  const todayIso = isoOf(new Date());
  renderedToday = todayIso;
+ const mLow = MESI[mo - 1].toLowerCase();
 
  for (let d = 1; d <= daysIn(month); d++) {
  const key = isoDay(month, d);
  const dow = new Date(y, mo - 1, d).getDay();
- const rowCls = [dow === 0 || dow === 6 ? 'we' : '', key === todayIso ? 'is-today' : ''].filter(Boolean).join(' ');
+ const we = dow === 0 || dow === 6;
+ const isToday = key === todayIso;
 
- const tr = el('tr', rowCls);
- const td = el('td', 'day', String(d));
- td.append(el('span', '', GG[dow]));
+ const tr = el('tr', [we ? 'we' : '', isToday ? 'is-today' : ''].filter(Boolean).join(' '));
+ const td = el('td', 'day');
+ const badge = el('span', 'daybadge');
+ badge.append(el('b', '', String(d)), el('span', '', GG[dow]));
+ td.append(badge);
  tr.append(td);
+
+ const card = el('section', 'daycard' + (we ? ' we' : ''));
+ card.id = 'day-' + d;
+ const ch = el('div', 'daycard-h');
+ const chT = el('b', '', GIORNI[dow] + ' ' + d);
+ chT.append(el('span', '', mLow));
+ ch.append(chT);
+ if (isToday) ch.append(el('span', 'today-pill', 'Oggi'));
+ card.append(ch);
 
  cols.forEach((col, i) => {
  const theme = colTheme(col);
- const c = el('td');
  const val = ((cellMap[key] || [])[i] || '').trim();
- const conf = val ? conflictsFor(extractPureName(val), cellInterval(col, val, key), s.title + '|' + key + '|' + i) : null;
- const confCls = conf && conf.overlap.length ? ' conflict' : (conf && conf.rest.length ? ' rest-warn' : '');
- const btn = el('button', 'cell-btn ' + theme + (val ? ' filled' : ' empty') + (val === 'NO' ? ' is-no' : '') + confCls);
+ const cs = cellState(s, key, i, col, val);
+ const aria = GIORNI[dow] + ' ' + d + ' ' + mLow + ', ' + bandLabel(col) + ' ' + col.start + '–' + col.end + ': ' + (val || 'da assegnare') + (cs.confTxt ? '. ' + cs.confTxt : '');
+
+ const c = el('td');
+ const btn = el('button', 'cell ' + cs.cls);
  btn.type = 'button';
- const confTxt = conf ? conflictText(conf) : '';
- btn.setAttribute('aria-label', GG[dow] + ' ' + d + ' ' + MESI[mo - 1] + ', ' + col.start + '–' + col.end + ': ' + (val || 'vuoto') + (confTxt ? '. ' + confTxt : ''));
- if (confTxt) btn.title = confTxt;
- btn.append(el('span', 'c-txt', val || '+ Assegna'));
- if (confCls) btn.append(el('span', 'c-warn', '⚠'));
- btn.append(el('span', 'c-arr', '▾'));
- btn.addEventListener('click', () => openCellPicker(s, key, i, btn, false));
+ btn.setAttribute('aria-label', aria);
+ if (cs.confTxt) btn.title = cs.confTxt;
+ if (cs.confCls) { const w = el('span', 'c-warn'); w.append(icon('warn', 14)); btn.append(w); }
+ btn.append(el('span', 'c-txt', val || '—'));
+ btn.addEventListener('click', () => openCellPicker(s, key, i, btn));
  c.append(btn);
  tr.append(c);
+
+ const slot = el('button', 'slot ' + cs.cls);
+ slot.type = 'button';
+ slot.setAttribute('aria-label', aria);
+ const band = el('span', 'slot-band');
+ band.append(el('span', '', bandLabel(col)), el('small', '', col.start + '–' + col.end));
+ slot.append(el('i', 'bdot ' + theme), band, el('span', 'slot-name', val || 'Da assegnare'));
+ if (cs.confCls) { const w = el('span', 'c-warn'); w.append(icon('warn', 16)); slot.append(w); }
+ const chev = el('span', 'chev');
+ chev.append(icon('chev', 16));
+ slot.append(chev);
+ slot.addEventListener('click', () => openCellPicker(s, key, i, slot));
+ card.append(slot);
  });
  body.append(tr);
+ dayList.append(card);
  }
  tableEl.append(body);
 }
 
 function renderAllGrids(s) {
- const [y, mo] = month.split('-').map(Number);
- const sCat = s.category || categoryOfTitle(s.title);
- $('#mainTableTitle').textContent = s.title;
- $('#mainTableSub').textContent = sCat + ' · ' + MESI[mo - 1] + ' ' + y;
  buildTableDOM($('#grid'), s);
 }
 
 function scrollToToday() {
  requestAnimationFrame(() => {
+ if (isPhone()) {
+ const card = document.getElementById('day-' + new Date().getDate());
+ if (card) window.scrollTo({ top: card.getBoundingClientRect().top + window.scrollY - 70, behavior: 'smooth' });
+ return;
+ }
  const row = $('#grid tr.is-today');
  const g = $('#mainGridWrap');
  if (!row || !g) return;
  const head = $('#grid thead');
  g.scrollTop = row.offsetTop - (head ? head.offsetHeight : 0) - 8;
- $('.table-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+ $('.tcard').scrollIntoView({ behavior: 'smooth', block: 'start' });
  });
 }
 
@@ -1564,10 +1641,12 @@ function render() {
  if (!titles.includes(title)) title = titles[0];
  const [y, mo] = month.split('-').map(Number);
  $('#monthLbl').textContent = MESI[mo - 1] + ' ' + y;
+ $('#printMonth').textContent = '· ' + MESI[mo - 1] + ' ' + y;
+ $('#copyPrevBtn').textContent = 'Copia da ' + monthName(shiftMonth(month, -1)).toLowerCase();
  const s = sheetFor(title, month, true);
 
+ renderNav();
  renderMonthStats();
- renderCategoryNav();
  renderEmployees();
  renderColsEditor(s);
  renderAllGrids(s);
@@ -1588,16 +1667,18 @@ function render() {
 function show(logged) {
  $('#login').hidden = logged;
  $('#editor').hidden = !logged;
- $('#pubbar').hidden = !logged;
  document.body.classList.toggle('logged', logged);
+ if (!logged) setTimeout(() => { const p = $('#pw'); if (p && !isPhone()) p.focus(); }, 50);
 }
 function logout(wrong) {
  pw = '';
  clearPw();
  closeCellPicker();
+ closeNav();
+ closeMenu();
  show(false);
  $('#loginMsg').className = 'msg err';
- $('#loginMsg').textContent = wrong ? 'Password non valida o scaduta: rieffettua l\'accesso.' : '';
+ $('#loginMsg').textContent = wrong ? 'Password non valida o cambiata: rieffettua l\'accesso.' : '';
 }
 async function start() {
  if (!API) {
@@ -1618,8 +1699,28 @@ async function start() {
  if (!justLoaded) checkRemote();
 }
 
+/* ---------- Menu "⋯" ---------- */
+function openMenu() {
+ $('#moreMenu').hidden = false;
+ $('#moreBtn').setAttribute('aria-expanded', 'true');
+ const first = $('#moreMenu button');
+ if (first) first.focus();
+}
+function closeMenu() {
+ if ($('#moreMenu').hidden) return;
+ $('#moreMenu').hidden = true;
+ $('#moreBtn').setAttribute('aria-expanded', 'false');
+}
+const curSheet = () => sheetFor(title, month, true);
+
 /* ---------- Eventi ---------- */
-$('#addPostBtn').addEventListener('click', (e) => openAddPostazioneModal(e.currentTarget));
+$('#addPostBtn').addEventListener('click', (e) => { closeNav(); openAddPostazioneModal(e.currentTarget); });
+$('#empBtn').addEventListener('click', (e) => openEmployees(e.currentTarget));
+$('#colsBtn').addEventListener('click', (e) => openCols(e.currentTarget));
+$('#sumBtn').addEventListener('click', (e) => openSummary(e.currentTarget));
+$('#postPick').addEventListener('click', openNav);
+$('#sideClose').addEventListener('click', closeNav);
+$('#sideBg').addEventListener('click', closeNav);
 
 $('#empForm').addEventListener('submit', (e) => {
  e.preventDefault();
@@ -1635,29 +1736,26 @@ $('#empForm').addEventListener('submit', (e) => {
  } else {
  employees.push({ name: val, cats: chosenCats.length ? chosenCats : [activeCat] });
  employees.sort((a, b) => a.name.localeCompare(b.name, 'it'));
- toast('Aggiunto ' + val + ' (' + chosenCats.join(', ') + ')');
+ toast('Aggiunto ' + val);
  }
  markDirty();
  renderEmployees();
+ $('#pkSub').textContent = employees.length + (employees.length === 1 ? ' dipendente' : ' dipendenti') + ' · validi per tutte le postazioni';
  inp.value = '';
  inp.focus();
 });
 
-const toggleBox = (btnSel, boxSel) => $(btnSel).addEventListener('click', () => {
- const b = $(boxSel);
- b.hidden = !b.hidden;
- $(btnSel).setAttribute('aria-expanded', String(!b.hidden));
-});
-toggleBox('#empBtn', '#empBox');
-toggleBox('#colsBtn', '#colsBox');
-
 $('#pkClose').addEventListener('click', closeCellPicker);
 $('#pkBg').addEventListener('click', closeCellPicker);
-// Esc chiude, Tab resta dentro il pannello aperto
 document.addEventListener('keydown', (e) => {
- if ($('#pickerSheet').hidden) return;
- if (e.key === 'Escape') { closeCellPicker(); return; }
- if (e.key !== 'Tab') return;
+ if (e.key === 'Escape') {
+ if (!$('#moreMenu').hidden) { closeMenu(); $('#moreBtn').focus(); return; }
+ if (!$('#pickerSheet').hidden) { closeCellPicker(); return; }
+ if (document.body.classList.contains('nav-open')) { closeNav(); $('#postPick').focus(); }
+ return;
+ }
+ if (e.key !== 'Tab' || $('#pickerSheet').hidden) return;
+ // Tab resta dentro il pannello aperto
  const panel = $('#pkPanel');
  const f = [...panel.querySelectorAll('button, input, select, textarea, [tabindex]:not([tabindex="-1"])')]
  .filter((x) => !x.disabled && x.offsetParent !== null);
@@ -1667,6 +1765,13 @@ document.addEventListener('keydown', (e) => {
  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 });
 
+$('#pwToggle').addEventListener('click', () => {
+ const inp = $('#pw');
+ const showing = inp.type === 'text';
+ inp.type = showing ? 'password' : 'text';
+ $('#pwToggle').setAttribute('aria-pressed', String(!showing));
+ $('#pwToggle').setAttribute('aria-label', showing ? 'Mostra password' : 'Nascondi password');
+});
 $('#loginForm').addEventListener('submit', async (e) => {
  e.preventDefault();
  const msg = $('#loginMsg');
@@ -1677,8 +1782,9 @@ $('#loginForm').addEventListener('submit', async (e) => {
  const r = await fetch(API + '/api/auth', { headers: { authorization: 'Bearer ' + tryPw } });
  if (!r.ok) { msg.className = 'msg err'; msg.textContent = r.status === 429 ? 'Troppi tentativi: riprova tra qualche minuto' : 'Password errata'; return; }
  pw = tryPw;
- savePw(pw, $('#remember').checked);
+ savePw(pw);
  $('#pw').value = '';
+ $('#pw').type = 'password';
  msg.textContent = '';
  start();
  } catch {
@@ -1692,17 +1798,33 @@ $('#mPrev').addEventListener('click', () => goMonth(shiftMonth(month, -1)));
 $('#mNext').addEventListener('click', () => goMonth(shiftMonth(month, 1)));
 $('#mToday').addEventListener('click', () => { goMonth(ym(new Date())); scrollToToday(); });
 
+$('#copyPrevBtn').addEventListener('click', () => copyFromPrevMonth(curSheet()));
 $('#printBtn').addEventListener('click', () => window.print());
 $('#csvBtn').addEventListener('click', exportCsv);
+$('#moreBtn').addEventListener('click', (e) => { e.stopPropagation(); if ($('#moreMenu').hidden) openMenu(); else closeMenu(); });
+document.addEventListener('click', (e) => { if (!e.target.closest('.menu-wrap')) closeMenu(); });
+$('#mCols').addEventListener('click', () => openCols($('#moreBtn')));
+$('#mClear').addEventListener('click', () => { closeMenu(); clearMonth(curSheet()); });
+$('#mDelPost').addEventListener('click', () => { closeMenu(); deletePostazione(title); });
+$('#mDelCat').addEventListener('click', () => { closeMenu(); deleteCategory(activeCat); });
 
 $('#pubBtn').addEventListener('click', publish);
-$('#logout').addEventListener('click', () => logout(false));
+$('#logout').addEventListener('click', () => { closeNav(); logout(false); });
 $('#reload').addEventListener('click', async () => {
+ closeNav();
  if (state.dirty && !confirm('Scartare le modifiche non pubblicate e caricare i turni dal server?')) return;
  closeCellPicker();
  try { await loadRemote(); render(); toast('Ricaricato dal server'); }
  catch { toast('Server non raggiungibile'); }
 });
+
+// Altezza reale della barra superiore (serve alla barra laterale fissa)
+if ('ResizeObserver' in window) {
+ new ResizeObserver(([entry]) => {
+ document.documentElement.style.setProperty('--top-h', Math.round(entry.target.getBoundingClientRect().height) + 'px');
+ }).observe($('.topbar'));
+}
+window.matchMedia('(max-width: 760px)').addEventListener('change', () => { closeNav(); if (state && pw) renderBar(); });
 
 document.addEventListener('visibilitychange', () => {
  if (document.visibilityState === 'hidden') { flush(); return; }

@@ -3,204 +3,197 @@
 <head>
  <meta charset="utf-8">
  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
- <meta name="theme-color" content="#b23338">
+ <meta name="theme-color" content="#ffffff">
  <title>Turni · Responsabile · La Falco</title>
  <link rel="icon" href="favicon.png">
  <link rel="manifest" href="manifest.webmanifest">
  <link rel="apple-touch-icon" href="icon-192.png">
+ <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
  <meta name="apple-mobile-web-app-capable" content="yes">
  <meta name="apple-mobile-web-app-title" content="Responsabile">
  <link rel="stylesheet" href="style.css">
  <link rel="stylesheet" href="manager.css">
 </head>
-<body class="mode-app">
- <header class="top">
- <div class="wrap top-in">
- <img class="logo" src="logo.png" alt="La Falco soc. coop.">
- <div class="who">
- <span class="who-label">Area</span>
- <strong>Responsabile</strong>
- </div>
- </div>
- </header>
+<body>
 
- <main class="wrap">
- <section id="login" class="card" hidden>
- <h2>Accesso responsabile</h2>
- <form id="loginForm" class="nameform" autocomplete="off">
- <label for="pw">Password</label>
- <div class="row">
- <input id="pw" type="password" autocomplete="current-password" required>
- <button type="submit">Entra</button>
+ <!-- ===== Accesso ===== -->
+ <div id="login" class="login" hidden>
+ <div class="login-card">
+ <div class="login-head">
+ <img class="login-logo" src="logo.png" alt="La Falco soc. coop.">
+ <h1>Area responsabile</h1>
+ <p>Accedi per preparare e pubblicare i turni.</p>
  </div>
- <label class="remember"><input id="remember" type="checkbox"> Ricorda su questo dispositivo (30 giorni)</label>
+ <form id="loginForm" class="login-form" autocomplete="off">
+ <label for="pw">Password</label>
+ <div class="pwfield">
+ <input id="pw" type="password" autocomplete="current-password" required>
+ <button id="pwToggle" type="button" class="icon-btn" aria-label="Mostra password" aria-pressed="false">
+ <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+ </button>
+ </div>
+ <button type="submit" class="btn-primary btn-lg">Entra</button>
  </form>
  <p id="loginMsg" class="msg" role="status"></p>
- </section>
-
- <div id="editor" hidden>
- <!-- Selettore mese e riepilogo isolato per mese -->
- <div class="mbar card">
- <div class="mhead">
- <div>
- <span class="m-eyebrow" id="mStateBadge">Mese selezionato</span>
- <h2 id="monthLbl"></h2>
+ <p class="login-note">
+ <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+ <span>La password viene richiesta ogni volta che riapri l'app. Le bozze dei turni restano salvate sul dispositivo.</span>
+ </p>
  </div>
- <div class="mnavs">
- <button id="mPrev" class="mnav" type="button" aria-label="Mese precedente">‹</button>
- <button id="mToday" class="mtoday" type="button">Oggi</button>
- <button id="mNext" class="mnav" type="button" aria-label="Mese successivo">›</button>
- </div>
- </div>
- <div id="mStats" class="mstats"></div>
+ <p class="login-foot">La Falco soc. coop. · Gestione turni</p>
  </div>
 
- <!-- Navigazione per Categoria e Postazione -->
- <section class="card nav-card">
- <div class="nav-block">
- <div class="nav-head-row">
- <span class="nav-label">1. Scegli la categoria</span>
- <button id="addPostBtn" class="pillbtn add-post-btn" type="button">
- <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
- <span>Nuova postazione</span>
- </button>
+ <!-- ===== Editor ===== -->
+ <div id="editor" class="app" hidden>
+ <header class="topbar">
+ <div class="brand">
+ <img class="logo" src="logo.png" alt="La Falco soc. coop.">
+ <span class="brand-sep" aria-hidden="true"></span>
+ <div class="brand-txt"><b>Turni</b><span>Area responsabile</span></div>
  </div>
- <div id="catTabs" class="tabs cat-tabs" role="tablist"></div>
+ <div class="monthsw">
+ <button id="mPrev" class="icon-btn" type="button" aria-label="Mese precedente"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+ <span id="monthLbl" class="month-lbl" aria-live="polite"></span>
+ <button id="mNext" class="icon-btn" type="button" aria-label="Mese successivo"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+ <button id="mToday" class="btn btn-sm" type="button">Oggi</button>
  </div>
- <div id="subNavBlock" class="nav-block sub-block">
- <span class="nav-label" id="subNavLabel">2. Postazioni</span>
- <div id="subTabs" class="tabs sub-tabs" role="tablist"></div>
- </div>
- </section>
-
- <!-- Barra strumenti: Dipendenti e Colonne -->
- <div class="tools-grid">
- <section class="card tool-card">
- <div class="tool-head">
- <div>
- <h2>Lista dipendenti e campi</h2>
- <p class="tool-sub" id="empCountLbl">0 dipendenti salvati</p>
- </div>
- <button id="empBtn" class="pillbtn" type="button" aria-expanded="false">Gestisci</button>
- </div>
- <div id="empBox" class="empbox" hidden>
- <form id="empForm" class="emp-add-form" autocomplete="off">
- <div class="row">
- <input id="empInput" type="text" placeholder="Nome dipendente (es. MURANTE)" autocapitalize="characters" spellcheck="false">
- <button type="submit">Aggiungi</button>
- </div>
- <div class="emp-cats-pick">
- <span class="emp-cats-lbl">Campi assegnati al nuovo dipendente:</span>
- <div id="empNewCats" class="cat-checks"></div>
- </div>
- </form>
- <div id="empList" class="emplist"></div>
- <p class="hint">Tocca i badge dei campi accanto a ogni dipendente per abilitarlo o disabilitarlo in quel settore. Nella tabella compariranno solo i dipendenti assegnati alla categoria attiva.</p>
- </div>
- </section>
-
- <section class="card tool-card">
- <div class="tool-head">
- <div>
- <h2>Orari delle colonne</h2>
- <p class="tool-sub" id="colsCountLbl">Orari della postazione</p>
- </div>
- <button id="colsBtn" class="pillbtn" type="button" aria-expanded="false">Configura</button>
- </div>
- <div id="colsBox" class="colsbox" hidden></div>
- </section>
- </div>
-
- <!-- Legenda colori -->
- <div class="legend">
- <span class="leg-item"><i class="dot m"></i>Mattina</span>
- <span class="leg-item"><i class="dot p"></i>Pomeriggio</span>
- <span class="leg-item"><i class="dot n"></i>Notte</span>
- <span class="leg-item"><i class="dot c"></i>Continuativo / Extra</span>
- <span class="leg-item"><i class="dot warn"></i>Conflitto / riposo &lt; 11h</span>
- <span class="leg-hint">Tocca una casella per scegliere il dipendente del settore</span>
- </div>
-
- <!-- Tabella principale turni -->
- <div class="table-section">
- <div class="table-header-bar">
- <div class="table-titles">
- <h3 id="mainTableTitle">Turni</h3>
- <span id="mainTableSub" class="table-badge"></span>
- </div>
- <div class="table-tools">
- <button id="csvBtn" class="pillbtn" type="button" title="Scarica la tabella in formato CSV (Excel)">Esporta CSV</button>
- <button id="printBtn" class="pillbtn" type="button" title="Stampa o salva in PDF">Stampa</button>
- </div>
- </div>
- <div class="gridwrap" id="mainGridWrap"><table id="grid" class="grid"></table></div>
- </div>
-
- <!-- Riepilogo ore per dipendente -->
- <details class="card sum-card" id="sumCard">
- <summary>
- <div>
- <h2>Riepilogo per dipendente</h2>
- <p class="tool-sub" id="sumSub"></p>
- </div>
- <span class="pillbtn" aria-hidden="true">Mostra</span>
- </summary>
- <div id="sumBody" class="sum-body"></div>
- <p class="hint">⚠ = turni sovrapposti o con meno di 11 ore di riposo tra un turno e l'altro. Le caselle interessate sono evidenziate nella tabella.</p>
- </details>
-
- <!-- Sezione finale pulita e professionale -->
- <div class="footer-actions card">
- <div class="footer-guide">
- <div class="fg-icon" aria-hidden="true">💡</div>
- <p class="hint">Tocca qualsiasi casella per assegnare un dipendente del settore o impostare un prolungamento d'orario (es. <b>ROSSI M. 18</b> finisce alle 18:00, <b>18 ROSSI M.</b> inizia alle 18:00). Le modifiche restano salvate in bozza sul tuo dispositivo finché non premi <b>Pubblica turni</b>.</p>
- </div>
- <div class="footer-btns">
- <button id="reload" class="sec-btn" type="button">
- <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M3 12a9 9 0 1 0 3-6.7L3 8m0-5v5h5"/></svg>
- <span>Ricarica dal server (scarta bozza)</span>
- </button>
- <button id="logout" class="sec-btn danger-outline" type="button">
- <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4m7 14 5-5-5-5m5 5H9"/></svg>
- <span>Esci dall'account</span>
- </button>
- </div>
- </div>
- </div>
- </main>
-
- <!-- Modal / Bottom Sheet per selezione rapida dipendente o aggiunta postazione -->
- <div id="pickerSheet" class="sheet" hidden>
- <div class="sheet-bg" id="pkBg"></div>
- <div class="panel" id="pkPanel" role="dialog" aria-modal="true" aria-labelledby="pkTitle" tabindex="-1">
- <div class="grab"></div>
- <div class="sh-head">
- <div>
- <h3 id="pkTitle">Assegna turno</h3>
- <p id="pkSub" class="sh-sub"></p>
- </div>
- <button type="button" class="x" id="pkClose" aria-label="Chiudi">✕</button>
- </div>
- <div class="sh-body" id="pkBody"></div>
- </div>
- </div>
-
- <!-- Nuova Dock Bar di Pubblicazione Fluttuante -->
- <div id="pubbar" class="pubbar" hidden>
- <div class="pubbar-inner">
+ <div id="pubbar" class="pubwrap">
  <div class="pubinfo">
- <span id="pubDot" class="pub-dot"></span>
- <div class="pub-texts">
- <strong id="pubTitle">Stato sincronizzazione</strong>
- <span id="pubStatus">Controllo modifiche…</span>
+ <span id="pubChip" class="status-chip"><i id="pubDot" aria-hidden="true"></i><span id="pubTitle">Controllo…</span></span>
+ <span id="pubStatus" class="pub-sub"></span>
  </div>
- </div>
- <button id="pubBtn" class="pub-cta" type="button">
- <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M12 19V5m0 0-6 6m6-6 6 6"/></svg>
+ <button id="pubBtn" class="btn-primary" type="button">
+ <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 19V5m0 0-6 6m6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
  <span id="pubBtnTxt">Pubblica turni</span>
  </button>
  </div>
+ </header>
+
+ <!-- Solo su telefono: scelta della postazione -->
+ <div class="mobile-bar">
+ <button id="postPick" class="postpick" type="button" aria-controls="side" aria-expanded="false">
+ <span id="postPickTxt"></span>
+ <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+ </button>
  </div>
+
+ <div class="layout">
+ <nav id="side" class="side" aria-label="Postazioni e gestione">
+ <div class="side-mhead">
+ <b>Postazioni</b>
+ <button id="sideClose" class="icon-btn" type="button" aria-label="Chiudi"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+ </div>
+ <div id="sideNav" class="side-nav"></div>
+ <button id="addPostBtn" class="side-add" type="button">
+ <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+ Nuova postazione
+ </button>
+ <div class="side-sep"></div>
+ <div class="side-group">
+ <span class="side-lbl">Gestione</span>
+ <button id="empBtn" class="navitem" type="button">Dipendenti<span id="empCountLbl" class="navcnt"></span></button>
+ <button id="colsBtn" class="navitem" type="button">Orari delle colonne</button>
+ <button id="sumBtn" class="navitem" type="button">Riepilogo ore</button>
+ </div>
+ <div class="side-foot">
+ <button id="reload" class="navitem" type="button">Ricarica dal server</button>
+ <button id="logout" class="navitem" type="button">Esci</button>
+ </div>
+ </nav>
+ <div id="sideBg" class="side-bg" hidden></div>
+
+ <main class="content">
+ <div class="page-head">
+ <div class="ph-titles">
+ <span id="pageCat" class="ph-cat"></span>
+ <div class="ph-h1row">
+ <h1 id="mainTableTitle"></h1>
+ <span id="mStateBadge" class="state-badge"></span>
+ <span id="printMonth" class="print-only"></span>
+ </div>
+ </div>
+ <div class="ph-actions">
+ <button id="copyPrevBtn" class="btn" type="button">Copia dal mese precedente</button>
+ <button id="csvBtn" class="btn" type="button">Esporta CSV</button>
+ <button id="printBtn" class="btn" type="button">Stampa</button>
+ <div class="menu-wrap">
+ <button id="moreBtn" class="btn btn-icon" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="moreMenu" aria-label="Altre azioni della postazione">
+ <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="5" cy="12" r="1.7" fill="currentColor"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/><circle cx="19" cy="12" r="1.7" fill="currentColor"/></svg>
+ </button>
+ <div id="moreMenu" class="menu" role="menu" hidden>
+ <button id="mCols" type="button" role="menuitem">Orari delle colonne</button>
+ <button id="mClear" type="button" role="menuitem">Svuota i turni del mese</button>
+ <div class="menu-sep" role="separator"></div>
+ <button id="mDelPost" type="button" role="menuitem" class="danger">Elimina postazione</button>
+ <button id="mDelCat" type="button" role="menuitem" class="danger">Elimina categoria</button>
+ </div>
+ </div>
+ </div>
+ </div>
+
+ <div id="mStats" class="kpis"></div>
+
+ <section class="tcard" aria-label="Tabella turni">
+ <div class="tcard-bar">
+ <div class="legend">
+ <span><i class="bdot col-m"></i>Mattina</span>
+ <span><i class="bdot col-p"></i>Pomeriggio</span>
+ <span><i class="bdot col-n"></i>Notte</span>
+ <span><i class="bdot col-c"></i>Continuativo / extra</span>
+ <span><i class="bdot warn"></i>Conflitto o riposo &lt; 11 h</span>
+ </div>
+ <span class="tcard-hint">Tocca una casella per assegnare</span>
+ </div>
+ <div class="gridwrap" id="mainGridWrap"><table id="grid" class="grid"></table></div>
+ <div id="dayList" class="daylist"></div>
+ </section>
+ </main>
+ </div>
+ </div>
+
+ <!-- ===== Pannello laterale (assegna turno, dipendenti, orari, riepilogo, nuova postazione) ===== -->
+ <div id="pickerSheet" class="sheet" hidden>
+ <div class="sheet-bg" id="pkBg"></div>
+ <div class="panel" id="pkPanel" role="dialog" aria-modal="true" aria-labelledby="pkTitle" tabindex="-1">
+ <div class="sh-head">
+ <div class="sh-titles">
+ <span id="pkEyebrow" class="sh-eyebrow"></span>
+ <h2 id="pkTitle"></h2>
+ <p id="pkSub" class="sh-sub"></p>
+ </div>
+ <button type="button" class="icon-btn icon-btn-b" id="pkClose" aria-label="Chiudi"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+ </div>
+
+ <div class="sh-body" id="pkBody"></div>
+
+ <div class="sh-body" id="empView" hidden>
+ <form id="empForm" class="emp-add" autocomplete="off">
+ <label for="empInput">Nuovo dipendente</label>
+ <div class="row">
+ <input id="empInput" type="text" placeholder="Es. ROSSI M." autocapitalize="characters" spellcheck="false" maxlength="60">
+ <button type="submit" class="btn-primary">Aggiungi</button>
+ </div>
+ <span class="field-lbl">Campi assegnati</span>
+ <div id="empNewCats" class="chips"></div>
+ </form>
+ <div id="empList" class="emplist"></div>
+ <p class="hint">Tocca un campo accanto al nome per abilitare o disabilitare il dipendente in quel settore. Nel pannello di assegnazione compaiono prima i dipendenti del settore della postazione.</p>
+ </div>
+
+ <div class="sh-body" id="colsView" hidden>
+ <div id="colsBox" class="colsbox"></div>
+ </div>
+
+ <div class="sh-body" id="sumView" hidden>
+ <p id="sumSub" class="sh-sub"></p>
+ <div id="sumBody" class="sum-body"></div>
+ <p class="hint">⚠ indica turni sovrapposti o con meno di 11 ore di riposo tra un turno e l'altro. Le caselle interessate sono evidenziate nella tabella.</p>
+ </div>
+
+ <div class="sh-foot" id="pkFoot" hidden></div>
+ </div>
+ </div>
+
  <div id="toast" class="toast" role="status" hidden></div>
 
  <script src="config.js"></script>
