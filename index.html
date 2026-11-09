@@ -30,9 +30,10 @@
  <form id="loginForm" class="nameform" autocomplete="off">
  <label for="pw">Password</label>
  <div class="row">
- <input id="pw" type="password" autocomplete="current-password">
+ <input id="pw" type="password" autocomplete="current-password" required>
  <button type="submit">Entra</button>
  </div>
+ <label class="remember"><input id="remember" type="checkbox"> Ricorda su questo dispositivo (30 giorni)</label>
  </form>
  <p id="loginMsg" class="msg" role="status"></p>
  </section>
@@ -58,7 +59,7 @@
  <section class="card nav-card">
  <div class="nav-block">
  <div class="nav-head-row">
- <span class="nav-label">1. Scegli Categoria (Campo Sud, Campo Nord, Parchi)</span>
+ <span class="nav-label">1. Scegli la categoria</span>
  <button id="addPostBtn" class="pillbtn add-post-btn" type="button">
  <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
  <span>Nuova postazione</span>
@@ -116,17 +117,37 @@
  <span class="leg-item"><i class="dot p"></i>Pomeriggio</span>
  <span class="leg-item"><i class="dot n"></i>Notte</span>
  <span class="leg-item"><i class="dot c"></i>Continuativo / Extra</span>
+ <span class="leg-item"><i class="dot warn"></i>Conflitto / riposo &lt; 11h</span>
  <span class="leg-hint">Tocca una casella per scegliere il dipendente del settore</span>
  </div>
 
  <!-- Tabella principale turni -->
  <div class="table-section">
  <div class="table-header-bar">
+ <div class="table-titles">
  <h3 id="mainTableTitle">Turni</h3>
  <span id="mainTableSub" class="table-badge"></span>
  </div>
+ <div class="table-tools">
+ <button id="csvBtn" class="pillbtn" type="button" title="Scarica la tabella in formato CSV (Excel)">Esporta CSV</button>
+ <button id="printBtn" class="pillbtn" type="button" title="Stampa o salva in PDF">Stampa</button>
+ </div>
+ </div>
  <div class="gridwrap" id="mainGridWrap"><table id="grid" class="grid"></table></div>
  </div>
+
+ <!-- Riepilogo ore per dipendente -->
+ <details class="card sum-card" id="sumCard">
+ <summary>
+ <div>
+ <h2>Riepilogo per dipendente</h2>
+ <p class="tool-sub" id="sumSub"></p>
+ </div>
+ <span class="pillbtn" aria-hidden="true">Mostra</span>
+ </summary>
+ <div id="sumBody" class="sum-body"></div>
+ <p class="hint">⚠ = turni sovrapposti o con meno di 11 ore di riposo tra un turno e l'altro. Le caselle interessate sono evidenziate nella tabella.</p>
+ </details>
 
  <!-- Sezione finale pulita e professionale -->
  <div class="footer-actions card">
