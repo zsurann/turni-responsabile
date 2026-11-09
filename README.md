@@ -16,7 +16,7 @@ PWA per il responsabile: compila i turni per postazione e mese e li pubblica sul
 
 ## Rilascio: cose da ricordare
 
-1. **Aumenta `CACHE` in `sw.js`** (es. `resp-v12` → `resp-v13`) a ogni modifica, altrimenti le app installate possono restare alla versione vecchia.
+1. **Aumenta `CACHE` in `sw.js`** (es. `resp-v13` → `resp-v14`) a ogni modifica, altrimenti le app installate possono restare alla versione vecchia.
 2. Se cambi l'indirizzo del Worker in `config.js`, aggiornalo anche in `connect-src` dentro `_headers`, altrimenti il browser blocca le chiamate.
 
 ## API del Worker `turni-sync` usate dall'app
@@ -29,6 +29,7 @@ Il codice del Worker non è in questo repository: si gestisce dal pannello Cloud
 | `GET` | `/api/schedule` | `Bearer` (facoltativa) | Senza password: `{ version, docs }` (app dei turnisti). Con la password: anche `employees`, `customStructures`, `deletedCategories`, `deletedTitles` |
 | `PUT` | `/api/schedule` | `Bearer` | Sostituisce tutto. `baseVersion` = versione su cui si basa la bozza: se sul server ce n'è una diversa risponde **409**. Risponde `{ version }` |
 | `POST` | `/api/notify` | `Bearer` | `{ title, body, cursor }` → `{ sent, done, cursor }`, a gruppi di 40 iscritti |
+| `GET` / `PUT` | `/api/draft` | `Bearer` | Bozza non pubblicata condivisa tra i dispositivi del responsabile. `PUT` con `baseRev`: se un altro dispositivo ha salvato nel frattempo risponde **409** e l'app chiede quale bozza tenere |
 
 Limiti del Worker: fino a 400 fogli (postazioni × mesi) per pubblicazione; dopo 10 password sbagliate in 15 minuti lo stesso indirizzo IP riceve 429.
 
@@ -36,7 +37,8 @@ Se la versione del Worker è precedente (limite di 60 fogli, dati di gestione no
 
 ## Comportamenti principali
 
-- **Bozza locale**: le modifiche restano nel dispositivo finché non premi *Pubblica turni*. Se un altro dispositivo ha pubblicato nel frattempo, l'app avvisa prima di sovrascrivere e, se la bozza è pulita, si aggiorna da sola.
+- **Bozza condivisa tra computer e telefono**: le modifiche non pubblicate vengono salvate anche sul Worker (pochi secondi dopo l'ultima modifica, al massimo una volta ogni 30 secondi, e subito quando l'app va in background). Gli altri dispositivi del responsabile le ricevono da soli entro 30 secondi o alla riapertura dell'app. Se due dispositivi modificano quasi insieme, l'app chiede quale bozza tenere. I turnisti vedono solo i turni pubblicati. Senza il Worker aggiornato la bozza resta solo sul dispositivo e la riga di stato lo segnala.
+- **Pubblicazione**: se un altro dispositivo ha pubblicato nel frattempo, l'app avvisa prima di sovrascrivere.
 - **Avvisi push ripresi**: se l'invio delle notifiche si interrompe, *Invia avviso* riparte dal punto raggiunto (niente notifiche doppie). L'avviso nomina solo i mesi cambiati.
 - **Conflitti** (in rosso): stessa persona in turni sovrapposti, oppure turno che inizia entro 1 ora dalla fine di una notte ("viene dalla notte"). Il pannello di assegnazione lo segnala prima di assegnare. Non c'è più l'avviso sul riposo minimo di 11 ore.
 - **Storico**: a ogni pubblicazione vengono inviati gli ultimi 12 mesi.
