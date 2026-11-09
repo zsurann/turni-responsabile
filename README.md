@@ -15,7 +15,7 @@ PWA per il responsabile: compila i turni per postazione e mese e li pubblica sul
 
 ## Rilascio: cose da ricordare
 
-1. **Aumenta `CACHE` in `sw.js`** (es. `resp-v7` → `resp-v8`) a ogni modifica, altrimenti le app installate possono restare alla versione vecchia.
+1. **Aumenta `CACHE` in `sw.js`** (es. `resp-v8` → `resp-v9`) a ogni modifica, altrimenti le app installate possono restare alla versione vecchia.
 2. Se cambi l'indirizzo del Worker in `config.js`, aggiornalo anche in `connect-src` dentro `_headers`, altrimenti il browser blocca le chiamate.
 
 ## API del Worker usate dall'app
@@ -42,4 +42,4 @@ PWA per il responsabile: compila i turni per postazione e mese e li pubblica sul
 - **Conflitti**: le caselle con la stessa persona in turni sovrapposti (rosso) o con meno di 11 ore di riposo (arancione) sono evidenziate; il selettore lo segnala prima di assegnare.
 - **Storico**: a ogni pubblicazione vengono inviati gli ultimi 12 mesi.
 - **Parole riservate** (non diventano dipendenti): `NO`, `RIPOSO`, `FERIE`, `MALATTIA`, `PERMESSO`, `FESTIVO`, `RECUPERO`, `LIBERO`, `ASSENTE`, `SCOPERTO`, `CHIUSO`, `ROL`, `CONGEDO`, `INFORTUNIO`.
-- **Accesso**: senza "Ricorda su questo dispositivo" la password vale solo per la sessione del browser; con la spunta dura 30 giorni.
+- **Accesso**: la password non viene mai salvata: l'app la chiede a ogni apertura (anche dopo un ricaricamento). La bozza dei turni resta invece salvata sul dispositivo.

@@ -12,7 +12,6 @@ const LS_PW = 'resp.pw.v1', LS_PUB = 'resp.pub.v1', LS_EMP = 'resp.emp.v2', LS_L
 
 const KEEP_MONTHS = 12;      // mesi di storico inviati al server a ogni pubblicazione
 const MIN_REST_H = 11;       // riposo minimo tra due turni (D.Lgs. 66/2003)
-const PW_DAYS = 30;          // durata dell'accesso "ricordato"
 const REMOTE_CHECK_MS = 60000;
 
 const MESI = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
@@ -217,27 +216,16 @@ function migrateState(raw) {
  };
 }
 
-/* ---------- Password: sessione o "ricordami" per PW_DAYS giorni ---------- */
-function loadPw() {
- try { const s = sessionStorage.getItem(LS_PW); if (s) return JSON.parse(s).pw || ''; } catch { /* ignore */ }
- const v = lsGet(LS_PW, '');
- if (typeof v === 'string') { if (v) savePw(v, true); return v; } // vecchio formato: migra
- if (v && v.pw && v.exp > Date.now()) return v.pw;
- if (v) lsSet(LS_PW, '');
- return '';
-}
-function savePw(p, remember) {
- clearPw();
- if (remember) lsSet(LS_PW, { pw: p, exp: Date.now() + PW_DAYS * 86400000 });
- else { try { sessionStorage.setItem(LS_PW, JSON.stringify({ pw: p })); } catch { /* ignore */ } }
-}
+/* ---------- Password: solo in memoria, richiesta a ogni apertura dell'app ---------- */
+// Rimuove eventuali password salvate dalle versioni precedenti
 function clearPw() {
  try { localStorage.removeItem(LS_PW); sessionStorage.removeItem(LS_PW); } catch { /* ignore */ }
 }
+clearPw();
 
 let state = migrateState(lsGet(LS_STATE, null) || lsGet(LS_LEGACY_V3, null) || lsGet(LS_LEGACY_V2, null) || lsGet(LS_LEGACY_V1, null));
 let employees = normalizeEmployees(lsGet(LS_EMP, null) || lsGet(LS_LEGACY_EMP, []));
-let pw = loadPw();
+let pw = '';
 
 const ui = lsGet(LS_UI, {}) || {};
 if (/^\d{4}-\d{2}$/.test(ui.month || '')) month = ui.month;
@@ -1677,7 +1665,6 @@ $('#loginForm').addEventListener('submit', async (e) => {
  const r = await fetch(API + '/api/auth', { headers: { authorization: 'Bearer ' + tryPw } });
  if (!r.ok) { msg.className = 'msg err'; msg.textContent = r.status === 429 ? 'Troppi tentativi: riprova tra qualche minuto' : 'Password errata'; return; }
  pw = tryPw;
- savePw(pw, $('#remember').checked);
  $('#pw').value = '';
  msg.textContent = '';
  start();
