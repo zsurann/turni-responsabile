@@ -429,12 +429,6 @@ function sheetFor(t, m, create) {
  return s;
 }
 
-function sheetHasData(t, m) {
- const s = sheetFor(t, m, false);
- if (!s) return false;
- return Object.entries(s.cells || {}).some(([date, arr]) => date.slice(0, 7) === m && (arr || []).some((v) => extractPureName(v)));
-}
-
 function colTheme(col) {
  if (/extra|continuat/i.test(col.label || '')) return 'col-c';
  const [sh, sm] = (col.start || '00:00').split(':').map(Number);
@@ -871,30 +865,89 @@ function shiftCount(t) {
  return n;
 }
 
+// Colore di ogni categoria (classi in manager.css): le tre base hanno un colore fisso,
+// quelle create a mano ruotano su altri tre colori
+const CAT_CLASS = { 'CAMPO SUD': 'cat-sud', 'CAMPO NORD': 'cat-nord', 'PARCHI': 'cat-parchi' };
+function catClass(id) {
+ if (CAT_CLASS[id]) return CAT_CLASS[id];
+ const custom = getCategories().map((c) => c.id).filter((x) => !CAT_CLASS[x]);
+ return ['cat-x1', 'cat-x2', 'cat-x3'][Math.max(0, custom.indexOf(id)) % 3];
+}
+const catInitials = (s) => String(s || '').split(' ').filter((w) => w && !SMALL_WORDS.has(w.toLowerCase()))
+ .map((w) => w[0]).join('').slice(0, 2).toUpperCase();
+
+let openCat;          // categoria aperta nella barra laterale ('' = tutte chiuse)
+let lastActiveCat;    // per riaprire la categoria giusta quando cambia la postazione
+
+// Apre/chiude le categorie senza ricostruire la barra (così l'animazione resta fluida)
+function syncAccordion() {
+ document.querySelectorAll('#sideNav .acc').forEach((g) => {
+ const open = g.dataset.cat === openCat;
+ g.classList.toggle('open', open);
+ g.querySelector('.acc-head').setAttribute('aria-expanded', String(open));
+ });
+}
+
 function renderNav() {
  const cats = getCategories();
  if (!cats.length) return;
  activeCat = categoryOfTitle(title);
- const groups = cats.map((c) => {
- const g = el('div', 'side-group');
- g.append(el('span', 'side-lbl', niceCase(c.label)));
+ if (activeCat !== lastActiveCat || (openCat && !cats.some((c) => c.id === openCat))) openCat = activeCat;
+ lastActiveCat = activeCat;
+
+ const groups = cats.map((c, idx) => {
+ const cls = catClass(c.id);
+ const g = el('div', 'acc ' + cls + (c.id === activeCat ? ' has-active' : ''));
+ g.dataset.cat = c.id;
+ const bodyId = 'acc-body-' + idx;
+ const headId = 'acc-head-' + idx;
+
+ const head = el('button', 'acc-head');
+ head.type = 'button';
+ head.id = headId;
+ head.setAttribute('aria-controls', bodyId);
+ const badge = el('span', 'acc-badge', catInitials(c.label));
+ badge.setAttribute('aria-hidden', 'true');
+ const total = c.items.reduce((n, it) => n + shiftCount(it.title), 0);
+ const meta = el('span', 'acc-meta', String(c.items.length));
+ meta.title = c.items.length + (c.items.length === 1 ? ' postazione' : ' postazioni') + (total ? ' · ' + total + ' turni in ' + monthName(month).toLowerCase() : '');
+ const chev = el('span', 'acc-chev');
+ chev.append(icon('chev', 16));
+ head.append(badge, el('span', 'acc-name', niceCase(c.label)), meta, chev);
+ head.addEventListener('click', () => {
+ openCat = openCat === c.id ? '' : c.id;
+ syncAccordion();
+ });
+
+ const body = el('div', 'acc-body');
+ body.id = bodyId;
+ body.setAttribute('role', 'region');
+ body.setAttribute('aria-labelledby', headId);
+ const inner = el('div', 'acc-inner');
+ const list = el('div', 'acc-list');
  c.items.forEach((it) => {
  const on = it.title === title;
- const b = el('button', 'navitem' + (on ? ' on' : ''));
+ const b = el('button', 'navitem acc-item' + (on ? ' on' : ''));
  b.type = 'button';
  if (on) b.setAttribute('aria-current', 'page');
  const n = shiftCount(it.title);
  b.append(el('span', '', shortLabel(it.title, c.id)), el('span', 'navcnt', n ? String(n) : '—'));
  b.title = it.title + (n ? ' · ' + n + ' turni in ' + monthName(month).toLowerCase() : '');
  b.addEventListener('click', () => { title = it.title; closeNav(); render(); });
- g.append(b);
+ list.append(b);
  });
+ inner.append(list);
+ body.append(inner);
+ g.append(head, body);
  return g;
  });
  $('#sideNav').replaceChildren(...groups);
+ syncAccordion();
 
  const lbl = shortLabel(title, activeCat);
- $('#pageCat').textContent = niceCase(activeCat);
+ const pc = $('#pageCat');
+ pc.className = 'ph-cat ' + catClass(activeCat);
+ pc.textContent = niceCase(activeCat);
  $('#mainTableTitle').textContent = lbl;
  const pp = $('#postPickTxt');
  pp.replaceChildren(document.createTextNode(lbl + ' '), el('span', '', '· ' + niceCase(activeCat)));
@@ -907,7 +960,7 @@ function openNav() {
  document.body.classList.add('nav-open');
  $('#sideBg').hidden = false;
  $('#postPick').setAttribute('aria-expanded', 'true');
- const on = $('#sideNav .navitem.on') || $('#sideNav .navitem');
+ const on = $('#sideNav .acc.open .navitem.on') || $('#sideNav .acc.open .acc-head') || $('#sideNav .acc-head');
  if (on) setTimeout(() => on.focus(), 60);
 }
 function closeNav() {
@@ -961,7 +1014,7 @@ function openAddPostazioneModal(triggerBtn) {
  const nameLbl = el('label', '', 'Nome della postazione');
  nameLbl.htmlFor = 'newPostName';
  const nameInp = el('input');
- Object.assign(nameInp, { id: 'newPostName', type: 'text', placeholder: 'Es. PARCO SAN GENNARO', autocapitalize: 'characters', spellcheck: false, maxLength: 60, autocomplete: 'off' });
+ Object.assign(nameInp, { id: 'newPostName', type: 'text', placeholder: 'Es. GABBIOTTO', autocapitalize: 'characters', spellcheck: false, maxLength: 60, autocomplete: 'off' });
  nameField.append(nameLbl, nameInp);
 
  const suggestBadge = el('div', 'suggest-badge');
@@ -1288,9 +1341,9 @@ function openCellPicker(sheet, key, colIdx, triggerBtn) {
  const q = normName(sInp.value);
  let visible = 0;
  rows.forEach((r) => {
- const show = (showAll || r.inCat || r.cur) && (!q || r.name.includes(q));
- r.btn.hidden = !show;
- if (show) visible++;
+ const isVisible = (showAll || r.inCat || r.cur) && (!q || r.name.includes(q));
+ r.btn.hidden = !isVisible;
+ if (isVisible) visible++;
  });
  manual.hidden = !q || rows.some((r) => r.name === q);
  manualB.textContent = '«' + q + '»';
