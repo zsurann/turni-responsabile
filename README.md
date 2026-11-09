@@ -13,7 +13,7 @@ PWA per il responsabile: compila i turni per postazione e mese e li pubblica sul
 | `config.js` | Indirizzo del Worker (`self.TURNI_API`) |
 | `sw.js` | Service worker: rete prima, copia offline come riserva |
 | `_headers` | Header HTTP (Cloudflare Pages), compresa la Content-Security-Policy |
-| `worker/turni-push.js` | Worker Cloudflare delle notifiche push ai turnisti (KV `TURNI`, cron ogni 2 minuti). Va copiato a mano nel pannello Cloudflare del Worker. Pages lo rende comunque scaricabile dal sito: non contiene segreti (le chiavi stanno nel KV) |
+| `worker/turni-push.js` | Worker Cloudflare delle notifiche push ai turnisti (KV `TURNI`, cron ogni 2 minuti). Si copia nel pannello Cloudflare: non viene pubblicato con il sito |
 
 ## Rilascio: cose da ricordare
 
