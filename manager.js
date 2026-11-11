@@ -703,18 +703,21 @@ async function checkRemote() {
  }
 }
 
+let noticeFailed = 0; // telefoni che il servizio di notifiche non ha accettato nell'ultimo invio
 async function sendNotice() {
+ noticeFailed = state.noticeCursor ? noticeFailed : 0;
  const body = state.noticeBody || 'Il responsabile ha aggiornato i turni.';
  for (let i = 0; i < 40; i++) {
  const r = await api('/api/notify', {
  method: 'POST',
  headers: { 'content-type': 'application/json' },
- body: JSON.stringify({ title: 'Turni aggiornati', body, cursor: state.noticeCursor || null }),
+ body: JSON.stringify({ title: 'Nuovi Turni Pubblicati!', body, cursor: state.noticeCursor || null }),
  });
  if (r.status === 401) { logout(true); throw new Error('auth'); }
  if (!r.ok) throw new Error('notify ' + r.status);
  const d = await r.json();
  state.noticeSent = (state.noticeSent || 0) + (+d.sent || 0);
+ noticeFailed += +d.failed || 0;
  if (d.done) {
  const n = state.noticeSent;
  Object.assign(state, { noticePending: false, noticeCursor: null, noticeSent: 0, noticeBody: '' });
@@ -781,7 +784,7 @@ async function publish() {
  if (state.noticePending) {
  try {
  const n = await sendNotice();
- toast('Pubblicato · avviso inviato a ' + n + (n === 1 ? ' persona' : ' persone'));
+ toast('Pubblicato · avviso inviato a ' + n + (n === 1 ? ' telefono' : ' telefoni') + (noticeFailed ? ' (' + noticeFailed + ' non raggiunti)' : ''));
  } catch {
  if (pw) toast('Turni pubblicati, ma l\'avviso non è partito del tutto: tocca "Invia avviso" per riprendere');
  }
@@ -1344,83 +1347,112 @@ const footBtn = (txt, fn, disabled) => {
  return b;
 };
 
-/* ---------- Nuova postazione ---------- */
+/* ---------- Nuova postazione: prima la struttura, poi il nome della postazione ---------- */
+// Nome completo: la struttura davanti al nome ("CAMPO SUD" + "GABBIOTTO"), tranne nei Parchi dove il nome basta da solo
+function fullPostTitle(cat, rawName) {
+ const n = normTitle(rawName);
+ if (!n || cat === 'PARCHI' || n === cat || n.startsWith(cat + ' ')) return n;
+ return normTitle(cat + ' ' + n);
+}
 function openAddPostazioneModal(triggerBtn) {
  const body = $('#pkBody');
- body.replaceChildren();
-
- const form = el('form', 'struct-form');
- const nameField = el('div', 'struct-field');
- const nameLbl = el('label', '', 'Nome della postazione');
- nameLbl.htmlFor = 'newPostName';
- const nameInp = el('input');
- Object.assign(nameInp, { id: 'newPostName', type: 'text', placeholder: 'Es. GABBIOTTO', autocapitalize: 'characters', spellcheck: false, maxLength: 60, autocomplete: 'off' });
- nameField.append(nameLbl, nameInp);
-
- const suggestBadge = el('div', 'suggest-badge');
- suggestBadge.hidden = true;
-
- const catField = el('div', 'struct-field');
- catField.append(el('span', 'field-lbl', 'Categoria'));
- const catGrid = el('div', 'struct-cats');
  const existingCats = [...new Set([...ALL_BASE_CATS, ...getCategories().map((c) => c.id)])];
- let chosenCat = activeCat || 'PARCHI';
- let manualCatOverride = false;
+ const catDesc = (cid) => {
+ const c = getCategories().find((x) => x.id === cid);
+ if (!c || !c.items.length) return 'Nessuna postazione';
+ return c.items.map((it) => shortLabel(it.title, cid)).join(', ');
+ };
+ let chosenCat = '';
 
- const customCatField = el('div', 'struct-field');
- customCatField.hidden = true;
- const ccLbl = el('label', '', 'Nome della nuova categoria');
- ccLbl.htmlFor = 'newCatName';
- const customCatInp = el('input');
- Object.assign(customCatInp, { id: 'newCatName', type: 'text', placeholder: 'Es. VIGILANZA EVENTI', maxLength: 40, autocomplete: 'off' });
- customCatField.append(ccLbl, customCatInp);
-
- const renderCatButtons = () => {
- catGrid.replaceChildren();
+ const stepStruct = (askNew) => {
+ body.replaceChildren();
+ const form = el('form', 'struct-form');
+ form.append(el('p', 'struct-step', 'Passo 1 di 2'));
+ const catField = el('div', 'struct-field');
+ catField.append(el('span', 'struct-q', 'Inserisci struttura'));
+ const catGrid = el('div', 'struct-cats');
  existingCats.forEach((cid) => {
- const btn = el('button', 'struct-cat-btn' + (chosenCat === cid ? ' on' : ''));
+ const btn = el('button', 'struct-cat-btn');
  btn.type = 'button';
- btn.setAttribute('aria-pressed', String(chosenCat === cid));
- const desc = cid === 'PARCHI' ? 'Parchi e giardini' : (cid === 'CAMPO SUD' ? 'Gabbiotto, Ronda, Rom' : (cid === 'CAMPO NORD' ? 'Gabbiotto, Ronde' : 'Categoria personalizzata'));
- btn.append(el('b', '', niceCase(cid)), el('span', '', desc));
- btn.addEventListener('click', () => { chosenCat = cid; manualCatOverride = true; customCatField.hidden = true; renderCatButtons(); });
+ btn.append(el('b', '', niceCase(cid)), el('span', '', catDesc(cid)));
+ btn.addEventListener('click', () => { chosenCat = cid; stepPost(); });
  catGrid.append(btn);
  });
- const newBtn = el('button', 'struct-cat-btn' + (chosenCat === '__NEW__' ? ' on' : ''));
+ const newBtn = el('button', 'struct-cat-btn new' + (askNew ? ' on' : ''));
  newBtn.type = 'button';
- newBtn.append(el('b', '', '+ Nuova categoria'), el('span', '', 'Crea un nuovo gruppo'));
- newBtn.addEventListener('click', () => { chosenCat = '__NEW__'; manualCatOverride = true; customCatField.hidden = false; renderCatButtons(); customCatInp.focus(); });
+ newBtn.id = 'newStructBtn';
+ newBtn.setAttribute('aria-expanded', String(!!askNew));
+ newBtn.append(el('b', '', '+ Nuova struttura'), el('span', '', 'Crea una struttura che non c\'è'));
+ newBtn.addEventListener('click', () => stepStruct(true));
  catGrid.append(newBtn);
- };
-
- nameInp.addEventListener('input', () => {
- const guessed = guessCategoryFromName(nameInp.value);
- if (guessed && !manualCatOverride) {
- chosenCat = guessed;
- customCatField.hidden = true;
- suggestBadge.textContent = 'Categoria suggerita dal nome: ' + niceCase(guessed);
- suggestBadge.hidden = false;
- renderCatButtons();
- } else if (!guessed) suggestBadge.hidden = true;
- });
-
- renderCatButtons();
  catField.append(catGrid);
- const submitBtn = el('button', 'btn-primary btn-lg', 'Aggiungi postazione');
- submitBtn.type = 'submit';
- form.append(nameField, suggestBadge, catField, customCatField, submitBtn);
+ form.append(catField);
+ let inp = null;
+ if (askNew) {
+ const f = el('div', 'struct-field');
+ const lbl = el('label', '', 'Nome della nuova struttura');
+ lbl.htmlFor = 'newCatName';
+ inp = el('input');
+ Object.assign(inp, { id: 'newCatName', type: 'text', placeholder: 'Es. Campo Sud', maxLength: 40, autocomplete: 'off', spellcheck: false });
+ f.append(lbl, inp);
+ const go = el('button', 'btn-primary btn-lg', 'Continua');
+ go.type = 'submit';
+ form.append(f, go);
+ }
  form.addEventListener('submit', (e) => {
  e.preventDefault();
- const postName = normTitle(nameInp.value);
+ if (!inp) return;
+ let c = normName(inp.value);
+ if (c === 'PARCO CAFASSO') c = 'PARCHI';
+ if (!c) return toast('Scrivi il nome della struttura');
+ chosenCat = c;
+ stepPost();
+ });
+ body.append(form);
+ if (inp) inp.focus();
+ return form;
+ };
+
+ const stepPost = () => {
+ body.replaceChildren();
+ const form = el('form', 'struct-form');
+ form.append(el('p', 'struct-step', 'Passo 2 di 2'));
+ const chosen = el('div', 'struct-chosen');
+ const cl = el('span', '');
+ cl.append(el('small', '', 'Struttura'), el('b', '', niceCase(chosenCat)));
+ const change = el('button', 'btn btn-sm', 'Cambia');
+ change.type = 'button';
+ change.addEventListener('click', () => stepStruct(false));
+ chosen.append(cl, change);
+
+ const nameField = el('div', 'struct-field');
+ const nameLbl = el('label', 'struct-q', 'Inserisci postazione');
+ nameLbl.htmlFor = 'newPostName';
+ const nameInp = el('input');
+ Object.assign(nameInp, { id: 'newPostName', type: 'text', placeholder: chosenCat === 'PARCHI' ? 'Es. Parco Cafasso' : 'Es. Gabbiotto', spellcheck: false, maxLength: 60, autocomplete: 'off' });
+ const preview = el('p', 'struct-preview');
+ preview.hidden = true;
+ nameInp.addEventListener('input', () => {
+ const t = fullPostTitle(chosenCat, nameInp.value);
+ preview.hidden = !t;
+ if (t) preview.textContent = 'I dipendenti la vedranno come: ' + (t.startsWith(chosenCat + ' ') ? shortLabel(t, chosenCat) + ' · ' + niceCase(chosenCat) : niceCase(t));
+ });
+ nameField.append(nameLbl, nameInp, preview);
+
+ const submitBtn = el('button', 'btn-primary btn-lg', 'Aggiungi postazione');
+ submitBtn.type = 'submit';
+ form.append(chosen, nameField, submitBtn);
+ form.addEventListener('submit', (e) => {
+ e.preventDefault();
+ const postName = fullPostTitle(chosenCat, nameInp.value).slice(0, 60).trim();
  if (!postName) return toast('Inserisci il nome della postazione');
+ const finalCat = chosenCat;
  if (allAvailableTitles().includes(postName)) {
  title = postName;
  closeCellPicker();
  render();
- return toast('La postazione "' + postName + '" esiste già: l\'ho aperta');
+ return toast('La postazione "' + niceCase(postName) + '" esiste già: l\'ho aperta');
  }
- const finalCat = chosenCat === '__NEW__' ? normName(customCatInp.value) : chosenCat;
- if (!finalCat) return toast('Scegli o scrivi una categoria');
 
  state.deletedCategories = (state.deletedCategories || []).filter((c) => c !== finalCat);
  state.deletedTitles = (state.deletedTitles || []).filter((t) => t !== postName);
@@ -1437,10 +1469,14 @@ function openAddPostazioneModal(triggerBtn) {
  markDirty();
  closeCellPicker();
  render();
- toast('Postazione "' + postName + '" aggiunta in ' + niceCase(finalCat));
+ toast('Postazione "' + shortLabel(postName, finalCat) + '" aggiunta in ' + niceCase(finalCat));
  });
  body.append(form);
- openDrawer({ heading: 'Nuova postazione', sub: 'Il nome resta esattamente come lo scrivi.', trigger: triggerBtn, focus: nameInp, kind: 'add' });
+ nameInp.focus();
+ };
+
+ stepStruct(false);
+ openDrawer({ heading: 'Nuova postazione', sub: 'Scegli prima la struttura, poi dai il nome alla postazione.', trigger: triggerBtn, kind: 'add' });
 }
 
 /* ---------- Dipendenti ---------- */
