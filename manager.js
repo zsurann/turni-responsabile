@@ -647,12 +647,14 @@ async function api(path, opt) {
 // Con la password il Worker restituisce anche dipendenti, postazioni create a mano ed eliminazioni
 async function fetchSchedule() {
  const r = await api('/api/schedule', { cache: 'no-store' });
+ if (r.status === 401) { logout(true); throw new Error('auth'); }
  if (!r.ok) throw new Error('server ' + r.status);
  return r.json();
 }
 
 function applyRemote(d) {
- if (Array.isArray(d.employees) && d.employees.length) employees = normalizeEmployees(d.employees);
+ const remoteEmps = Array.isArray(d.employees);
+ if (remoteEmps) employees = normalizeEmployees(d.employees);
  const custom = Array.isArray(d.customStructures) ? d.customStructures : (state && state.customStructures) || [];
  setCustomTitles(custom);
  const delCats = Array.isArray(d.deletedCategories) ? d.deletedCategories : (state && state.deletedCategories) || [];
@@ -671,7 +673,7 @@ function applyRemote(d) {
  noticeSent: old.noticeSent || 0,
  };
  invalidate();
- bootstrapEmployeesFromSheets();
+ if (!remoteEmps) bootstrapEmployeesFromSheets(); // solo con un Worker vecchio, che non salva i dipendenti
  lsSet(LS_PUB, { version: d.version, months: monthSigs(toDocs()) });
  remoteNewer = false;
  persist();
@@ -785,9 +787,9 @@ async function publish() {
  }
  }
  } catch {
- toast('Errore di rete: riprova');
+ if (pw) toast('Errore di rete: riprova');
  } finally {
- renderBar();
+ if (state) renderBar();
  }
 }
 
@@ -796,13 +798,24 @@ async function publish() {
 // si può continuare dal telefono il lavoro iniziato al computer e viceversa.
 // I turnisti non la vedono finché non si preme "Pubblica turni".
 const LS_DRAFT = 'resp.draft.v1';
-const DRAFT_DEBOUNCE = 4000;   // salva 4 secondi dopo l'ultima modifica...
-const DRAFT_MIN_GAP = 30000;   // ...ma al massimo una volta ogni 30 secondi (scritture KV gratuite: 1000 al giorno)
-const DRAFT_POLL = 30000;      // controlla ogni 30 secondi se l'altro dispositivo ha cambiato qualcosa
+const LS_DRAFT_BASE = 'resp.draft.base.v1';
+const DRAFT_DEBOUNCE = 2000;   // salva 2 secondi dopo l'ultima modifica...
+const DRAFT_MIN_GAP = 15000;   // ...ma al massimo una volta ogni 15 secondi (scritture KV gratuite: 1000 al giorno)
+const DRAFT_POLL_FAST = 8000;  // controllo leggero ogni 8 secondi (Worker che risponde "nessuna novità" senza rimandare la bozza)
+const DRAFT_POLL_SLOW = 30000; // Worker vecchio: ogni controllo scarica tutta la bozza, quindi più di rado
 // rev = versione della bozza sul server da cui parte questo dispositivo; pending = modifiche locali non ancora inviate
 let draftInfo = lsGet(LS_DRAFT, null) || { rev: 0, pending: !!(state && state.dirty) };
 let draftSupported = true, draftBusy = false, draftConflict = false;
 let draftTimer = 0, draftSeq = 0, lastDraftPush = 0, lastDraftPull = 0;
+let draftLight = null;         // il Worker sa rispondere al controllo leggero (?rev=)? null = non ancora noto
+// Copia della bozza com'era all'ultima sincronizzazione: serve a unire da sole le modifiche fatte sui due dispositivi
+let draftBase = lsGet(LS_DRAFT_BASE, null);
+if (draftBase && draftBase.rev !== draftInfo.rev) draftBase = null;
+function setDraftBase(rev, st, emps) {
+ draftBase = { rev, state: JSON.parse(JSON.stringify({ sheets: st.sheets, customStructures: st.customStructures || [], deletedCategories: st.deletedCategories || [], deletedTitles: st.deletedTitles || [] })), employees: JSON.parse(JSON.stringify(emps)) };
+ // se la memoria è piena si rinuncia alla copia (resta in memoria finché l'app è aperta)
+ if (!lsSet(LS_DRAFT_BASE, draftBase)) { try { localStorage.removeItem(LS_DRAFT_BASE); } catch { /* ignore */ } }
+}
 let syncAt = 0;
 const saveDraftInfo = () => lsSet(LS_DRAFT, draftInfo);
 const deviceKind = () => (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? 'telefono' : 'computer');
@@ -851,19 +864,15 @@ async function pushDraft() {
  setSyncState('saving');
  let conflict = false;
  try {
- const body = JSON.stringify({
- baseRev: draftInfo.rev || 0,
- device: deviceKind(),
- state: {
+ const sent = {
  sheets: state.sheets,
  customStructures: state.customStructures || [],
  deletedCategories: state.deletedCategories || [],
  deletedTitles: state.deletedTitles || [],
  dirty: !!state.dirty,
- },
- employees,
- pub: lsGet(LS_PUB, null),
- });
+ };
+ const body = JSON.stringify({ baseRev: draftInfo.rev || 0, device: deviceKind(), state: sent, employees, pub: lsGet(LS_PUB, null) });
+ const sentCopy = JSON.parse(body);
  const r = await api('/api/draft', { method: 'PUT', headers: { 'content-type': 'application/json' }, body });
  lastDraftPush = Date.now();
  if (r.status === 404) { draftSupported = false; setSyncState('off'); return; } // Worker non ancora aggiornato
@@ -875,6 +884,7 @@ async function pushDraft() {
  const d = await r.json();
  draftInfo = { rev: d.rev, pending: draftSeq !== seq }; // modifiche fatte durante l'invio restano da inviare
  saveDraftInfo();
+ setDraftBase(d.rev, sentCopy.state, sentCopy.employees);
  setSyncState('saved', Date.now());
  if (draftInfo.pending) draftTimer = setTimeout(pushDraft, DRAFT_MIN_GAP);
  }
@@ -891,26 +901,43 @@ async function pullDraft() {
  if (!draftSupported || !pw || !state || draftConflict || draftBusy) return;
  lastDraftPull = Date.now();
  let r;
- try { r = await api('/api/draft', { cache: 'no-store' }); } catch { return; }
+ try { r = await api('/api/draft?rev=' + (draftInfo.rev || 0), { cache: 'no-store' }); } catch { return; }
  if (r.status === 404) { draftSupported = false; setSyncState('off'); return; }
  if (r.status === 401) { logout(true); return; }
  if (!r.ok) return;
  const d = await r.json().catch(() => null);
  if (!d) return;
+ if (d.same) {
+ // Worker aggiornato: nessuna novità, risposta di poche lettere
+ draftLight = true;
+ if (!draftInfo.pending) setSyncState('saved', syncAt || d.rev);
+ else if (!draftTimer) draftTimer = setTimeout(pushDraft, DRAFT_DEBOUNCE);
+ return;
+ }
  if (!d.rev) {
  // Nessuna bozza sul server: invio quella di questo dispositivo
  syncDraftNow();
  return;
  }
  if (d.rev === draftInfo.rev || d.rev < draftInfo.rev) {
+ if (d.rev === draftInfo.rev) draftLight = false; // Worker vecchio: ha rimandato tutta la bozza anche senza novità
  // Già allineati (o copia del server non ancora aggiornata: la ignoro)
  if (!draftInfo.pending) setSyncState('saved', syncAt || d.rev);
  else if (!draftTimer) draftTimer = setTimeout(pushDraft, DRAFT_DEBOUNCE);
  return;
  }
- if (draftInfo.pending) { openDraftConflict(d); return; }
+ if (draftInfo.pending) {
+ // Modifiche su tutti e due i dispositivi: se non toccano le stesse caselle si uniscono da sole
+ const merged = draftBase && draftBase.rev === draftInfo.rev ? mergeDrafts(draftBase, { state, employees }, d) : null;
+ if (!merged) { openDraftConflict(d); return; }
+ applyMerged(merged, d);
+ return;
+ }
+ // l'avviso compare solo se è cambiato davvero qualcosa (non al semplice allineamento della versione)
+ const sig = () => JSON.stringify([state.sheets.filter((x) => Object.keys(x.cells || {}).length).map((x) => [x.title, x.month, x.cols, x.cells]).sort(), state.customStructures, state.deletedCategories, state.deletedTitles, employees, !!state.dirty]);
+ const before = sig();
  applyDraft(d);
- toast('Bozza aggiornata con le modifiche fatte dal ' + (d.device || 'altro dispositivo'));
+ if (sig() !== before) toast('Bozza aggiornata con le modifiche fatte dal ' + (d.device || 'altro dispositivo'));
 }
 
 function applyDraft(d) {
@@ -923,13 +950,136 @@ function applyDraft(d) {
  if (d.pub && d.pub.version != null) lsSet(LS_PUB, d.pub);
  draftInfo = { rev: d.rev, pending: false };
  saveDraftInfo();
+ setDraftBase(d.rev, state, employees);
  clearTimeout(saveTimer);
- closeCellPicker();
+ refreshAfterSync();
+ setSyncState('saved', d.rev);
+}
+// Ridisegna dopo una sincronizzazione. I pannelli Dipendenti e Riepilogo restano aperti e si aggiornano sul posto;
+// gli altri (casella, orari, nuova postazione) si chiudono perché mostrano dati che possono essere cambiati.
+const LIVE_PANELS = new Set(['emp', 'sum']);
+function refreshAfterSync() {
+ const live = activePicker && LIVE_PANELS.has(activePicker.kind);
+ if (!live) closeCellPicker();
  closeMenu();
  invalidate();
  persist();
  render();
- setSyncState('saved', d.rev);
+ if (live && activePicker.kind === 'emp') $('#pkSub').textContent = employees.length + (employees.length === 1 ? ' dipendente' : ' dipendenti') + ' · validi per tutte le postazioni';
+}
+
+/* Unione automatica di due bozze partite dalla stessa versione (base).
+   Per ogni casella, dipendente o postazione: vale la modifica di chi l'ha cambiata.
+   Restituisce null se i due dispositivi hanno cambiato LA STESSA cosa in modo diverso: allora si chiede quale tenere. */
+function mergeDrafts(base, local, remote) {
+ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+ const clone = (x) => JSON.parse(JSON.stringify(x));
+ const norm = (st) => migrateState(clone({ ...(st || {}), sheets: (st && st.sheets) || [] })) || emptyState();
+ const B = norm(base.state), L = norm(local.state), R = norm(remote.state);
+ let conflict = false;
+ // scelta a tre vie per un valore semplice
+ const pick = (b, l, r) => {
+ if (same(l, b)) return r;
+ if (same(r, b) || same(l, r)) return l;
+ conflict = true;
+ return l;
+ };
+ const key = (s) => s.title + '|' + s.month;
+ const idx = (st) => new Map(st.sheets.map((s) => [key(s), s]));
+ const bM = idx(B), lM = idx(L), rM = idx(R);
+ const emptyOf = (s) => ({ title: s.title, category: s.category, month: s.month, cols: s.cols, cells: {} });
+ const hasCells = (s) => Object.keys(s.cells || {}).length > 0;
+ const sheets = [];
+ new Set([...lM.keys(), ...rM.keys(), ...bM.keys()]).forEach((k) => {
+ const l = lM.get(k), r = rM.get(k);
+ let b = bM.get(k);
+ if (!l && !r) return;
+ if (!l || !r) {
+ const one = l || r;
+ if (!b) { sheets.push(one); return; }                      // creato da un solo dispositivo
+ if (same(one, b) || !hasCells(one)) return;                // l'altro l'ha eliminato e questo non l'ha toccato
+ // eliminato da una parte, modificato dall'altra: resta eliminato solo se la postazione è tra quelle eliminate
+ sheets.push(one);
+ return;
+ }
+ if (!b) b = emptyOf(l);
+ const colsChangedL = !same(l.cols, b.cols), colsChangedR = !same(r.cols, b.cols);
+ if (colsChangedL && colsChangedR && !same(l.cols, r.cols)) { conflict = true; return; }
+ // colonne aggiunte o tolte da una parte mentre l'altra cambiava le caselle: le posizioni non corrispondono più
+ if ((colsChangedL && l.cols.length !== b.cols.length && !same(r.cells, b.cells)) ||
+ (colsChangedR && r.cols.length !== b.cols.length && !same(l.cells, b.cells))) { conflict = true; return; }
+ const cols = colsChangedL ? l.cols : r.cols;
+ let cells;
+ if (colsChangedL && l.cols.length !== b.cols.length) cells = l.cells;
+ else if (colsChangedR && r.cols.length !== b.cols.length) cells = r.cells;
+ else {
+ cells = {};
+ new Set([...Object.keys(l.cells), ...Object.keys(r.cells), ...Object.keys(b.cells)]).forEach((date) => {
+ const arr = cols.map((_, i) => pick((b.cells[date] || [])[i] || '', (l.cells[date] || [])[i] || '', (r.cells[date] || [])[i] || ''));
+ if (arr.some((x) => x)) cells[date] = arr;
+ });
+ }
+ sheets.push({ title: l.title, category: pick(b.category || '', l.category || '', r.category || ''), month: l.month, cols, cells });
+ });
+ if (conflict) return null;
+
+ // elenchi (postazioni create a mano, categorie e postazioni eliminate): aggiunte e rimozioni di entrambi
+ const mergeList = (bl, ll, rl, keyOf) => {
+ const bK = new Map(bl.map((x) => [keyOf(x), x])), lK = new Map(ll.map((x) => [keyOf(x), x])), rK = new Map(rl.map((x) => [keyOf(x), x]));
+ const out = [];
+ new Set([...rK.keys(), ...lK.keys()]).forEach((k) => {
+ const inB = bK.has(k), inL = lK.has(k), inR = rK.has(k);
+ const keep = inL !== inB ? inL : inR; // chi ha cambiato rispetto alla base decide
+ if (keep) out.push(inL && !same(lK.get(k), bK.get(k)) ? lK.get(k) : (rK.get(k) || lK.get(k)));
+ });
+ return out;
+ };
+ const str = (x) => String(x);
+ const deletedTitles = mergeList(B.deletedTitles, L.deletedTitles, R.deletedTitles, str);
+ const deletedCategories = mergeList(B.deletedCategories, L.deletedCategories, R.deletedCategories, str);
+ const customStructures = mergeList(B.customStructures, L.customStructures, R.customStructures, (x) => normTitle(x && x.title));
+ const delT = new Set(deletedTitles), delC = new Set(deletedCategories);
+
+ // dipendenti: aggiunti, rimossi o spostati di campo da uno dei due
+ const eMap = (list) => new Map(normalizeEmployees(list).map((e) => [e.name, [...e.cats].sort()]));
+ const bE = eMap(base.employees), lE = eMap(local.employees), rE = eMap(remote.employees);
+ const emps = [];
+ new Set([...rE.keys(), ...lE.keys()]).forEach((n) => {
+ const b = bE.get(n) || null, l = lE.get(n) || null, r = rE.get(n) || null;
+ let cats;
+ if (same(l, b)) cats = r;
+ else if (same(r, b) || same(l, r)) cats = l;
+ else cats = l && r ? [...new Set([...l, ...r])] : (l || r); // spostato da entrambi: tutti i campi scelti
+ if (cats) emps.push({ name: n, cats });
+ });
+
+ const outSheets = sheets.filter((s) => !delT.has(s.title) && !delC.has(s.category));
+ const outEmps = normalizeEmployees(emps);
+ // "Da pubblicare": se una delle due bozze lo era, oppure se il risultato è diverso da ciò che ha pubblicato
+ // il dispositivo con la pubblicazione più recente (es. uno ha pubblicato mentre l'altro aveva modifiche in sospeso)
+ const lPub = lsGet(LS_PUB, null), rPub = remote.pub || null;
+ const ver = (x) => (x && x.version != null ? +x.version || 0 : 0);
+ const remoteNewerPub = ver(rPub) > ver(lPub);
+ const content = (st, list) => JSON.stringify([st.sheets.filter(hasCells).map((x) => [x.title, x.month, x.category, x.cols, x.cells]).sort(), st.customStructures, [...st.deletedCategories].sort(), [...st.deletedTitles].sort(), normalizeEmployees(list)]);
+ const mergedState = { sheets: outSheets, customStructures, deletedCategories, deletedTitles };
+ const published = remoteNewerPub ? content(R, remote.employees) : content(L, local.employees);
+ const dirty = !!(local.state.dirty || (remote.state && remote.state.dirty)) || content(mergedState, outEmps) !== published;
+ return { state: { ...mergedState, dirty }, employees: outEmps, pub: remoteNewerPub ? rPub : null };
+}
+// Applica la bozza unita e la rimanda subito al server, così anche l'altro dispositivo la riceve
+function applyMerged(m, d) {
+ const old = state || emptyState();
+ state = { ...emptyState(), ...m.state, noticePending: !!old.noticePending, noticeCursor: old.noticeCursor || null, noticeBody: old.noticeBody || '', noticeSent: old.noticeSent || 0 };
+ employees = m.employees;
+ if (m.pub) lsSet(LS_PUB, m.pub); // solo se l'altro dispositivo ha pubblicato più di recente
+ draftInfo = { rev: d.rev, pending: true };
+ saveDraftInfo();
+ setDraftBase(d.rev, d.state || { sheets: [] }, Array.isArray(d.employees) ? d.employees : []);
+ clearTimeout(saveTimer);
+ refreshAfterSync();
+ toast('Unite le modifiche fatte dal ' + (d.device || 'altro dispositivo'));
+ draftSeq++;
+ pushDraft();
 }
 
 // Stesse modifiche fatte quasi insieme su due dispositivi: si sceglie quale bozza tenere
@@ -2078,7 +2228,7 @@ window.matchMedia('(max-width: 760px)').addEventListener('change', () => { close
 document.addEventListener('visibilitychange', () => {
  if (document.visibilityState === 'hidden') { flush(); if (draftInfo.pending) pushDraft(); return; }
  if (!state || !pw) return;
- if (Date.now() - lastDraftPull > 5000 && !activePicker) pullDraft();
+ if (Date.now() - lastDraftPull > 3000 && canPull()) pullDraft();
  if (isoOf(new Date()) !== renderedToday && !activePicker) render(); // passata la mezzanotte
  if (Date.now() - lastRemoteCheck > REMOTE_CHECK_MS) checkRemote();
 });
@@ -2098,9 +2248,16 @@ window.addEventListener('storage', (e) => {
  toast('Bozza aggiornata da un\'altra scheda');
  } catch { /* ignore */ }
 });
+const canPull = () => !activePicker || LIVE_PANELS.has(activePicker.kind);
 setInterval(() => {
- if (document.visibilityState === 'visible' && pw && state && !activePicker) pullDraft();
-}, DRAFT_POLL);
+ if (document.visibilityState !== 'visible' || !pw || !state || !canPull()) return;
+ if (Date.now() - lastDraftPull >= (draftLight === false ? DRAFT_POLL_SLOW : DRAFT_POLL_FAST) - 500) pullDraft();
+}, DRAFT_POLL_FAST);
+// Torna la rete: invia subito le modifiche rimaste in sospeso e controlla le novità
+window.addEventListener('online', () => {
+ if (!pw || !state) return;
+ if (draftInfo.pending) pushDraft(); else if (canPull()) pullDraft();
+});
 window.addEventListener('pagehide', flush);
 window.addEventListener('beforeunload', flush);
 window.addEventListener('scroll', onScroll, { passive: true });
