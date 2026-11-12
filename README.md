@@ -40,7 +40,6 @@ Se la versione del Worker è precedente (limite di 60 fogli, dati di gestione no
 - **Bozza condivisa tra computer e telefono**: le modifiche non pubblicate vengono salvate anche sul Worker (2 secondi dopo l'ultima modifica, al massimo una volta ogni 15 secondi, e subito quando l'app va in background). Gli altri dispositivi le ricevono da soli in pochi secondi (controllo ogni 8 secondi). Se due dispositivi modificano quasi insieme, le modifiche si uniscono da sole; l'app chiede quale bozza tenere solo se è stata cambiata la stessa casella. I turnisti vedono solo i turni pubblicati.
 - **Blocco per inattività**: dopo 30 minuti senza toccare l'app viene richiesta di nuovo la password. La bozza resta salvata.
 - **Aggiornamento**: quando cambia `sw.js` l'app aperta si ricarica da sola, se non c'è un pannello aperto.
-- **Codice d'accesso dei turnisti**: se sul Worker è impostato il Secret `ACCESS_CODE`, `GET /api/schedule` senza password richiede l'intestazione `x-turni-code`.
 - **Pubblicazione**: se un altro dispositivo ha pubblicato nel frattempo, l'app avvisa prima di sovrascrivere.
 - **Avvisi push ripresi**: se l'invio delle notifiche si interrompe, *Invia avviso* riparte dal punto raggiunto (niente notifiche doppie). L'avviso nomina solo i mesi cambiati.
 - **Conflitti** (in rosso): stessa persona in turni sovrapposti, oppure turno che inizia entro 1 ora dalla fine di una notte ("viene dalla notte"). Il pannello di assegnazione lo segnala prima di assegnare. Non c'è più l'avviso sul riposo minimo di 11 ore.
