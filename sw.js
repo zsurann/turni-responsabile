@@ -1,6 +1,6 @@
 /* Service worker: prima la rete, offline usa la copia salvata.
    IMPORTANTE: a ogni rilascio aumenta il numero in CACHE, così le app installate si aggiornano. */
-const CACHE = 'resp-v15';
+const CACHE = 'resp-v16';
 const ASSETS = [
  './', 'index.html', 'style.css', 'manager.css', 'manager.js', 'config.js',
  'manifest.webmanifest', 'logo.png', 'favicon.png', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'fonts/inter-latin.woff2',

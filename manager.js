@@ -711,7 +711,7 @@ async function sendNotice() {
  const r = await api('/api/notify', {
  method: 'POST',
  headers: { 'content-type': 'application/json' },
- body: JSON.stringify({ title: 'Nuovi Turni Pubblicati!', body, cursor: state.noticeCursor || null }),
+ body: JSON.stringify({ title: '📅 Nuovi turni pubblicati!', body: body + ' Tocca per vedere i tuoi.', cursor: state.noticeCursor || null }),
  });
  if (r.status === 401) { logout(true); throw new Error('auth'); }
  if (!r.ok) throw new Error('notify ' + r.status);
