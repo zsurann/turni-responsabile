@@ -1708,7 +1708,13 @@ function openCellPicker(sheet, key, colIdx, triggerBtn) {
  const manualMark = el('span', 'sdot');
  manualMark.append(icon('pen', 16));
  manual.append(manualT, manualMark);
- manual.addEventListener('click', () => setCellValue(sInp.value));
+ manual.addEventListener('click', () => {
+ const h = readHours();
+ if (!h) return;
+ const p = parseCellValue(normName(sInp.value));
+ // orari scritti insieme al nome valgono così; altrimenti si usano quelli di "Orario diverso"
+ setCellValue(p.startHour || p.endHour ? sInp.value : formatCellValue(sInp.value, h[0], h[1]));
+ });
 
  const empty = el('p', 'none', 'Nessun dipendente assegnato a ' + niceCase(sheetCat) + '. Tocca "Tutti" oppure scrivi un nome.');
  list.append(...rows.map((r) => r.btn), manual, empty);
@@ -2294,6 +2300,31 @@ window.addEventListener('online', () => {
  if (!pw || !state) return;
  if (draftInfo.pending) pushDraft(); else if (canPull()) pullDraft();
 });
+// Blocco per inattività: dopo 30 minuti senza toccare l'app serve di nuovo la password (la bozza resta salvata)
+const IDLE_LOCK_MS = 30 * 60 * 1000;
+let lastActive = Date.now();
+['pointerdown', 'keydown'].forEach((ev) => document.addEventListener(ev, () => { lastActive = Date.now(); }, { passive: true }));
+function checkIdle() {
+ if (!pw || Date.now() - lastActive < IDLE_LOCK_MS) return;
+ flush();
+ logout(false);
+ $('#loginMsg').textContent = 'App bloccata dopo 30 minuti di inattività: inserisci la password.';
+}
+// Versione nuova dell'app: si ricarica da sola quando non c'è un pannello aperto (la bozza è già salvata)
+let swBase = null;
+async function checkVersion() {
+ if (!navigator.onLine || document.hidden) return;
+ try {
+ const r = await fetch('sw.js', { cache: 'no-store' });
+ if (!r.ok) return;
+ const t = await r.text();
+ if (swBase === null) { swBase = t; return; }
+ if (t !== swBase && !activePicker) { flush(); location.reload(); }
+ } catch { /* offline: riprovo dopo */ }
+}
+setInterval(() => { checkIdle(); checkVersion(); }, 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { checkIdle(); checkVersion(); } });
+checkVersion();
 window.addEventListener('pagehide', flush);
 window.addEventListener('beforeunload', flush);
 window.addEventListener('scroll', onScroll, { passive: true });
